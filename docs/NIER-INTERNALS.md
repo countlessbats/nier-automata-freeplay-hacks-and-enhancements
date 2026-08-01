@@ -322,10 +322,37 @@ table, not a global; the frequency and seconds-per-count globals stored at
 engine init have no direct code references. Slowing everything therefore needs
 either the engine's per-frame delta or a per-entity approach.
 
-The per-entity approach currently in use: scale `anim_spd_rate`
-(`BehaviorAppBase + 0xC40`) on every non-player entity for the hitstop window
-and write 1.0 back once when it ends. That slows characters but not projectiles
-or particles.
+The per-entity approach was tried and **crashed the game**: writing
+`anim_spd_rate` (`BehaviorAppBase + 0xC40`) on every non-player entity assumes
+an offset that does not hold for every class in the entity list. Do not write
+into entity memory without confirming the offset for each class involved.
+
+### Hunting the native hitstop — what has been ruled out
+
+The engine does have a hitstop concept: `GURADHITSTOPSCALE_` binds to a float at
+`+0x120` of a player parameter struct (parser at `0x408EEC`, which also maps
+`GURADHITBACKSPEED_` to `+0x68`, `TURNRATE_` `+0x6C`, `CAMANG_*` `+0x8C..+0x9C`,
+`PODJUMPTIME_` `+0x1F0`). A *scale* implies a base hitstop exists. The consumer
+of `+0x120` has not been found because the struct's address is not yet known.
+
+Dead ends, so the next attempt does not repeat them:
+
+- **`applyDamage` (`0x66D1F0`, virtual, reached via vtable)** is pure damage
+  arithmetic: resistances, multipliers, clamping, then `sub [rdi+0x858], ebx`.
+  It sets no timer and no hitstop.
+- **`anim_spd_rate`** is not the native mechanism. Its only writer is a
+  one-instruction virtual setter at `0x4E62A0` with no direct callers, and it
+  has just two readers, which pass it to the animation-advance virtual.
+- **`+0xBE8`** looked like a hitstop countdown in the update at `0x420090`
+  (loaded from `+0xB44`, decremented, gates a block while positive) but it is a
+  per-state delay, and the same offset is unrelated `qword` data in other
+  classes.
+
+The promising next step is **empirical rather than static**: the sound hook
+already knows the exact moment a melee hit lands, so snapshot the player's
+behavior block before and after that moment and diff it. Whatever field the
+engine sets for its own hitstop will show up as a change correlated with hits
+and nothing else, which finds the mechanism without guessing at offsets.
 
 ## Miscellaneous leads
 
