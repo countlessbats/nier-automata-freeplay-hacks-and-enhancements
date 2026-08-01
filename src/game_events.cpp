@@ -1,19 +1,29 @@
 #include "game_events.hpp"
 #include "config.hpp"
 #include "damage_hook.hpp"
+#include "sound_hook.hpp"
 #include "timescale.hpp"
 
 #include <Windows.h>
-#include <Xinput.h>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace {
 struct Vec3 { float x{}, y{}, z{}; };
+
+// Pl0000 layout, confirmed against the unpacked runtime image:
+//   behavior + 0x50   position (Vector4f)
+//   behavior + 0x858  current health
+//   behavior + 0x85C  maximum health
+//   behavior + 0xCA0  CharacterController, whose +0x794 is the movement speed
+//     the game itself computes, so 0xCA0 + 0x794 = 0x1434.
+constexpr uintptr_t kControllerSpeed = 0x1434;
 
 template <typename T> bool safe_read(uintptr_t address, T& value) {
     __try {
@@ -72,12 +82,37 @@ bool get_name(uintptr_t entity, std::string& out) {
     return !out.empty();
 }
 
-using XInputGetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
+enum class SoundKind { Ignored, Footstep, MenuTick, MenuConfirm, MenuCancel };
 
-XInputGetStateFn load_xinput() {
-    HMODULE module = LoadLibraryW(L"XINPUT1_4.dll");
-    if (!module) return nullptr;
-    return reinterpret_cast<XInputGetStateFn>(GetProcAddress(module, MAKEINTRESOURCEA(2)));
+bool contains(const std::string& haystack, const char* needle) {
+    return haystack.find(needle) != std::string::npos;
+}
+
+// The game's sound event names are stable, lowercase-ish identifiers. Menu
+// names were read out of the executable; footsteps are matched by shape because
+// their names live in the packed data files rather than the executable.
+SoundKind classify(const std::string& lowered) {
+    if (lowered.empty()) return SoundKind::Ignored;
+    if (contains(lowered, "foot")) return SoundKind::Footstep;
+    if (contains(lowered, "step") && !contains(lowered, "stepup")) return SoundKind::Footstep;
+
+    const bool menu_namespace = lowered.rfind("core_", 0) == 0 || lowered.rfind("se_", 0) == 0;
+    if (!menu_namespace) return SoundKind::Ignored;
+    if (contains(lowered, "cancel")) return SoundKind::MenuCancel;
+    if (contains(lowered, "error") || contains(lowered, "alart")) return SoundKind::MenuCancel;
+    // "disicion" is the game's own spelling of the decision/confirm sound.
+    if (contains(lowered, "disicion") || contains(lowered, "decide") ||
+        contains(lowered, "decision")) return SoundKind::MenuConfirm;
+    if (contains(lowered, "cursor") || contains(lowered, "toptab") ||
+        contains(lowered, "menu_slide")) return SoundKind::MenuTick;
+    return SoundKind::Ignored;
+}
+
+std::string lowercase(const char* text) {
+    std::string out(text);
+    std::transform(out.begin(), out.end(), out.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return out;
 }
 }  // namespace
 
@@ -88,24 +123,18 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     uintptr_t list_global{};
     ULONGLONG last_signature_scan{};
     bool damage_hook_attempted{};
-
-    const auto xinput = load_xinput();
-    if (xinput) log_line("Menu haptics: XInput state reader active");
-    else log_line("Menu haptics: XInput 1.4 unavailable");
+    bool sound_hook_attempted{};
+    bool sound_hook_active{};
 
     std::unordered_map<uintptr_t, uint32_t> health_by_entity;
+    std::unordered_set<std::string> catalogued_names;
     uint32_t player_health{};
     bool have_player_health{};
     bool logged_player{};
-    Vec3 previous_position{};
-    bool have_position{};
-    ULONGLONG previous_position_time{};
-    float step_progress{};
+    bool logged_speed_sample{};
+    float player_speed{};
     bool left_foot{};
-    bool menu_likely{};
-    WORD previous_buttons{};
-    int previous_stick_direction{};
-    ULONGLONG last_menu_pulse{};
+    unsigned suppressed_hitstops{};
 
     while (!stop_requested.load()) {
         const ULONGLONG loop_time = GetTickCount64();
@@ -117,24 +146,21 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                          static_cast<unsigned long long>(list_global -
                          reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
         }
+        // The entity-list signature only resolves once the runtime image is
+        // unpacked, which is also when it is safe to scan for anything else.
+        if (list_global && !sound_hook_attempted) {
+            sound_hook_attempted = true;
+            sound_hook_active = install_sound_hook();
+        }
         if (list_global && !damage_hook_attempted) {
             damage_hook_attempted = true;
             install_enemy_damage_hook();
         }
+
         Vec3 player_position{};
         bool have_player{};
         bool enemy_damaged = consume_enemy_damage_event();
         bool player_damaged{};
-        XINPUT_STATE input_state{};
-        bool controller_connected{};
-        if (xinput) {
-            for (DWORD user = 0; user < 4; ++user) {
-                if (xinput(user, &input_state) == ERROR_SUCCESS) {
-                    controller_connected = true;
-                    break;
-                }
-            }
-        }
 
         if (list_global) {
             uintptr_t list{};
@@ -157,6 +183,10 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                         if (safe_read(behavior + 0x50, player_position) &&
                             std::isfinite(player_position.x) && std::isfinite(player_position.y) &&
                             std::isfinite(player_position.z)) have_player = true;
+                        float speed{};
+                        if (safe_read(behavior + kControllerSpeed, speed) &&
+                            std::isfinite(speed) && speed >= 0.0f && speed < 1000.0f)
+                            player_speed = speed;
                         if (valid_health) {
                             if (have_player_health && health < player_health) {
                                 player_damaged = true;
@@ -182,92 +212,70 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         }
 
         if (enemy_damaged || player_damaged) {
-            log_line("Event: hit connected; applying hitstop");
-            if (config_.hitstop_enabled)
-                begin_hitstop(config_.hitstop_speed, config_.hitstop_duration_ms);
+            const bool applied = config_.hitstop_enabled &&
+                begin_hitstop(config_.hitstop_speed, config_.hitstop_duration_ms,
+                              config_.hitstop_min_interval_ms);
+            if (applied) log_line("Event: hit connected; hitstop applied");
+            else if (config_.hitstop_enabled && ++suppressed_hitstops % 20 == 1)
+                log_line("Event: hit connected; hitstop still cooling down");
             if (enemy_damaged && !player_damaged && config_.haptics_enabled &&
                 config_.enemy_hit_enabled)
                 haptics_.play(HapticEffect::EnemyHit, config_.enemy_hit_strength);
         }
 
-        if (have_player) {
-            const ULONGLONG now = GetTickCount64();
-            if (!logged_player) {
-                log_line("Game events: local player acquired (HP %u, position %.2f/%.2f/%.2f, "
-                         "%llu other health-bearing entities)", player_health, player_position.x,
-                         player_position.y, player_position.z,
-                         static_cast<unsigned long long>(health_by_entity.size()));
-                logged_player = true;
-                menu_likely = false;
-            }
-
-            if (have_position && previous_position_time && now - previous_position_time >= 25) {
-                const float dx = player_position.x - previous_position.x;
-                const float dy = player_position.y - previous_position.y;
-                const float dz = player_position.z - previous_position.z;
-                const float horizontal = std::hypot(dx, dz);
-                const float elapsed = static_cast<float>(now - previous_position_time) / 1000.0f;
-                const float speed = horizontal / elapsed;
-                if (!menu_likely && horizontal < 1.5f && std::abs(dy) < 0.12f &&
-                    speed >= 0.7f && speed <= 30.0f)
-                    step_progress += horizontal;
-                else if (horizontal >= 1.5f || std::abs(dy) >= 0.12f || speed < 0.7f)
-                    step_progress = 0.0f;
-                const float stride = config_.footstep_distance * (speed >= 7.0f ? 1.35f : 0.90f);
-                if (step_progress >= stride && config_.haptics_enabled &&
-                    config_.footsteps_enabled) {
-                    step_progress = std::fmod(step_progress, stride);
-                    left_foot = !left_foot;
-                    haptics_.play(left_foot ? HapticEffect::FootLeft : HapticEffect::FootRight,
-                                  config_.footstep_strength);
-                }
-                previous_position = player_position;
-                previous_position_time = now;
-            }
-            if (!have_position) {
-                previous_position = player_position;
-                previous_position_time = now;
-                have_position = true;
-            }
-        } else {
-            menu_likely = true;
-            step_progress = 0.0f;
-            have_position = false;
-            previous_position_time = 0;
+        if (have_player && !logged_player) {
+            log_line("Game events: local player acquired (HP %u, position %.2f/%.2f/%.2f, "
+                     "%llu other health-bearing entities)", player_health, player_position.x,
+                     player_position.y, player_position.z,
+                     static_cast<unsigned long long>(health_by_entity.size()));
+            logged_player = true;
+        }
+        if (have_player && !logged_speed_sample && player_speed > 0.5f) {
+            log_line("Game events: player controller speed reads %.2f", player_speed);
+            logged_speed_sample = true;
         }
 
-        if (controller_connected) {
-            const WORD buttons = input_state.Gamepad.wButtons;
-            const WORD rising = buttons & ~previous_buttons;
-            if (rising & (XINPUT_GAMEPAD_START | XINPUT_GAMEPAD_BACK))
-                menu_likely = have_player ? !menu_likely : true;
-            int stick_direction{};
-            if (input_state.Gamepad.sThumbLX < -18000 || input_state.Gamepad.sThumbLY < -18000)
-                stick_direction = -1;
-            else if (input_state.Gamepad.sThumbLX > 18000 || input_state.Gamepad.sThumbLY > 18000)
-                stick_direction = 1;
-            const ULONGLONG now = GetTickCount64();
-            const bool digital_nav = (rising & (XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_DOWN |
-                XINPUT_GAMEPAD_DPAD_RIGHT | XINPUT_GAMEPAD_DPAD_UP)) != 0;
-            const bool stick_nav = stick_direction && stick_direction != previous_stick_direction &&
-                                   now - last_menu_pulse > 120;
-            const bool action = menu_likely && (rising & (XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_B));
-            if (config_.haptics_enabled && config_.menu_enabled && menu_likely &&
-                (digital_nav || stick_nav || action)) {
-                const bool right = (buttons & (XINPUT_GAMEPAD_DPAD_RIGHT | XINPUT_GAMEPAD_DPAD_UP)) ||
-                                   stick_direction > 0 || (rising & XINPUT_GAMEPAD_A);
-                haptics_.play(right ? HapticEffect::MenuRight : HapticEffect::MenuLeft,
-                              config_.menu_strength);
-                last_menu_pulse = now;
+        // Everything below is driven by the sounds the game actually plays.
+        SoundEvent event{};
+        while (sound_hook_active && pop_sound_event(event)) {
+            if (!event.name[0]) continue;
+            const std::string lowered = lowercase(event.name);
+            const SoundKind kind = classify(lowered);
+            if (config_.log_sound_names && catalogued_names.size() < 400 &&
+                catalogued_names.insert(lowered).second) {
+                static const char* kKindNames[] = {"-", "footstep", "menu tick",
+                                                   "menu confirm", "menu cancel"};
+                log_line("Sound: %s (id 0x%08X) [%s]", event.name, event.id,
+                         kKindNames[static_cast<int>(kind)]);
             }
-            if (menu_likely && (rising & XINPUT_GAMEPAD_B)) menu_likely = false;
-            previous_buttons = buttons;
-            previous_stick_direction = stick_direction;
-        } else {
-            previous_buttons = 0;
-            previous_stick_direction = 0;
+            if (!config_.haptics_enabled) continue;
+            switch (kind) {
+            case SoundKind::Footstep: {
+                if (!config_.footsteps_enabled) break;
+                if (config_.footstep_require_moving &&
+                    (!have_player || player_speed < config_.footstep_speed_threshold)) break;
+                left_foot = !left_foot;
+                haptics_.play(left_foot ? HapticEffect::FootLeft : HapticEffect::FootRight,
+                              config_.footstep_strength);
+                break;
+            }
+            case SoundKind::MenuTick:
+                if (config_.menu_enabled)
+                    haptics_.play(HapticEffect::MenuTick, config_.menu_strength);
+                break;
+            case SoundKind::MenuConfirm:
+                if (config_.menu_enabled)
+                    haptics_.play(HapticEffect::MenuConfirm, config_.menu_strength);
+                break;
+            case SoundKind::MenuCancel:
+                if (config_.menu_enabled)
+                    haptics_.play(HapticEffect::MenuCancel, config_.menu_strength);
+                break;
+            case SoundKind::Ignored:
+                break;
+            }
         }
-        Sleep(8);
+        Sleep(4);
     }
     reset_timescale();
 }

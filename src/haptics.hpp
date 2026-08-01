@@ -3,7 +3,15 @@
 #include <atomic>
 #include <memory>
 
-enum class HapticEffect { MenuLeft, MenuRight, FootLeft, FootRight, EnemyHit, PlayerHit };
+enum class HapticEffect {
+    MenuTick,     // cursor movement
+    MenuConfirm,  // decision / accept
+    MenuCancel,   // cancel, back, error
+    FootLeft,
+    FootRight,
+    EnemyHit,
+    PlayerHit,
+};
 
 class Haptics {
 public:

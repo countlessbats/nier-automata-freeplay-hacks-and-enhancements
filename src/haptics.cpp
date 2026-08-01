@@ -80,10 +80,11 @@ bool enable_endpoint(LPCWSTR endpoint_id) {
 
 double duration(HapticEffect effect) {
     switch (effect) {
-    case HapticEffect::MenuLeft:
-    case HapticEffect::MenuRight: return 0.025;
+    case HapticEffect::MenuTick: return 0.022;
+    case HapticEffect::MenuConfirm: return 0.045;
+    case HapticEffect::MenuCancel: return 0.038;
     case HapticEffect::FootLeft:
-    case HapticEffect::FootRight: return 0.050;
+    case HapticEffect::FootRight: return 0.032;
     case HapticEffect::EnemyHit: return 0.085;
     case HapticEffect::PlayerHit: return 0.220;
     }
@@ -97,17 +98,27 @@ void synthesize(const Voice& voice, double t, float& left, float& right) {
     float sample{};
     float balance{};
     switch (voice.effect) {
-    case HapticEffect::MenuLeft:
-    case HapticEffect::MenuRight:
-        sample = static_cast<float>(std::sin(2.0 * kPi * 185.0 * t)) * envelope;
-        balance = voice.effect == HapticEffect::MenuLeft ? -0.55f : 0.55f;
+    case HapticEffect::MenuTick:
+        sample = static_cast<float>(std::sin(2.0 * kPi * 190.0 * t)) * envelope;
+        break;
+    case HapticEffect::MenuConfirm:
+        sample = static_cast<float>(0.7 * std::sin(2.0 * kPi * 150.0 * t) +
+                                    0.3 * std::sin(2.0 * kPi * 300.0 * t)) * envelope;
+        break;
+    case HapticEffect::MenuCancel:
+        sample = static_cast<float>(std::sin(2.0 * kPi * 96.0 * t)) * envelope;
         break;
     case HapticEffect::FootLeft:
-    case HapticEffect::FootRight:
-        sample = static_cast<float>(0.72 * std::sin(2.0 * kPi * 82.0 * t) +
-                                    0.28 * std::sin(2.0 * kPi * 155.0 * t)) * envelope;
-        balance = voice.effect == HapticEffect::FootLeft ? -0.68f : 0.68f;
+    case HapticEffect::FootRight: {
+        // A short damped tap rather than a sustained thud: the earlier footstep
+        // read as too intense mostly because it rang on at low frequency.
+        const float decay = static_cast<float>(std::exp(-46.0 * t));
+        sample = static_cast<float>(0.8 * std::sin(2.0 * kPi * 95.0 * t) +
+                                    0.2 * std::sin(2.0 * kPi * 190.0 * t)) *
+                 decay * static_cast<float>(voice.strength);
+        balance = voice.effect == HapticEffect::FootLeft ? -0.75f : 0.75f;
         break;
+    }
     case HapticEffect::EnemyHit:
         sample = static_cast<float>(0.62 * std::sin(2.0 * kPi * 118.0 * t) +
                                     0.38 * std::sin(2.0 * kPi * 61.0 * t)) * envelope;

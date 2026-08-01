@@ -1,7 +1,16 @@
+# Build artifacts
 *.obj
 *.lib
 *.exp
+*.pdb
+tools/*.exe
 tests/*.exe
-dist/NierHaptics.log
-NierHaptics.log
 
+# Large analysis inputs and transient outputs
+analysis/nier_dump.bin
+analysis/dump_out.txt
+analysis/dump_err.txt
+analysis/__pycache__/
+
+# Runtime logs
+*.log
