@@ -13,10 +13,12 @@ struct Config {
     float menu_strength{0.20f};
     bool footsteps_enabled{true};
     float footstep_strength{0.035f};
-    // Footsteps follow the game's own footstep sounds. This gate only rejects
-    // footstep sounds belonging to other characters while the player is still.
+    // Footsteps follow the game's own footstep sounds. Companions and machines
+    // walk constantly, so only sounds belonging to the player's own character
+    // are used; the remaining settings guard against layered duplicates.
+    bool footstep_player_only{true};
     bool footstep_require_moving{true};
-    float footstep_speed_threshold{0.35f};
+    unsigned footstep_min_interval_ms{70};
     bool enemy_hit_enabled{true};
     float enemy_hit_strength{0.62f};
     bool player_hit_enabled{true};

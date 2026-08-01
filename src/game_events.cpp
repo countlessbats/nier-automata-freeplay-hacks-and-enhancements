@@ -1,6 +1,5 @@
 #include "game_events.hpp"
 #include "config.hpp"
-#include "damage_hook.hpp"
 #include "sound_hook.hpp"
 #include "timescale.hpp"
 
@@ -82,22 +81,40 @@ bool get_name(uintptr_t entity, std::string& out) {
     return !out.empty();
 }
 
-enum class SoundKind { Ignored, Footstep, MenuTick, MenuConfirm, MenuCancel };
+enum class SoundKind { Ignored, Footstep, MenuTick, MenuConfirm, MenuCancel, PlayerAttackHit };
 
 bool contains(const std::string& haystack, const char* needle) {
     return haystack.find(needle) != std::string::npos;
 }
 
-// The game's sound event names are stable, lowercase-ish identifiers. Menu
-// names were read out of the executable; footsteps are matched by shape because
-// their names live in the packed data files rather than the executable.
+bool ends_with(const std::string& text, const char* suffix) {
+    const size_t length = strlen(suffix);
+    return text.size() >= length && text.compare(text.size() - length, length, suffix) == 0;
+}
+
+// The character sound player appends `_pl` to the name when the sound belongs to
+// the character the player is controlling, and falls back to the bare name for
+// companions and enemies. That suffix is how 2B's own footsteps are told apart
+// from 9S's and from every machine walking nearby.
+bool is_player_sound(const std::string& lowered) { return ends_with(lowered, "_pl"); }
+
+bool is_footstep_name(const std::string& lowered) {
+    if (contains(lowered, "stepup")) return false;
+    return contains(lowered, "_step") || contains(lowered, "foot");
+}
+
+// Menu names were read out of the executable; footstep names live in the packed
+// data files and were recovered by logging what the game actually posts.
 SoundKind classify(const std::string& lowered) {
     if (lowered.empty()) return SoundKind::Ignored;
-    if (contains(lowered, "foot")) return SoundKind::Footstep;
-    if (contains(lowered, "step") && !contains(lowered, "stepup")) return SoundKind::Footstep;
+    if (is_footstep_name(lowered)) return SoundKind::Footstep;
 
     const bool menu_namespace = lowered.rfind("core_", 0) == 0 || lowered.rfind("se_", 0) == 0;
     if (!menu_namespace) return SoundKind::Ignored;
+    // The game plays its own hit-confirm sound when the player's attack lands,
+    // which is what "the player scored a hit" actually means. Health polling
+    // could only see that somebody's health fell, companions included.
+    if (contains(lowered, "_hit")) return SoundKind::PlayerAttackHit;
     if (contains(lowered, "cancel")) return SoundKind::MenuCancel;
     if (contains(lowered, "error") || contains(lowered, "alart")) return SoundKind::MenuCancel;
     // "disicion" is the game's own spelling of the decision/confirm sound.
@@ -106,6 +123,25 @@ SoundKind classify(const std::string& lowered) {
     if (contains(lowered, "cursor") || contains(lowered, "toptab") ||
         contains(lowered, "menu_slide")) return SoundKind::MenuTick;
     return SoundKind::Ignored;
+}
+
+// `pl0000_step_walk_L_pl` names the foot outright, so alternation is only a
+// fallback for names that do not.
+enum class Foot { Unknown, Left, Right };
+
+Foot foot_of(const std::string& lowered) {
+    if (contains(lowered, "_l_")) return Foot::Left;
+    if (contains(lowered, "_r_")) return Foot::Right;
+    if (ends_with(lowered, "_l")) return Foot::Left;
+    if (ends_with(lowered, "_r")) return Foot::Right;
+    return Foot::Unknown;
+}
+
+// The model prefix of whatever the player is currently controlling, e.g.
+// "pl0000" for 2B. Learned from any `_pl` sound so it follows character swaps.
+std::string model_prefix(const std::string& lowered) {
+    const size_t underscore = lowered.find('_');
+    return underscore == std::string::npos ? std::string() : lowered.substr(0, underscore);
 }
 
 std::string lowercase(const char* text) {
@@ -122,18 +158,17 @@ GameEvents::GameEvents(const Config& config, Haptics& haptics)
 void GameEvents::run(std::atomic_bool& stop_requested) {
     uintptr_t list_global{};
     ULONGLONG last_signature_scan{};
-    bool damage_hook_attempted{};
     bool sound_hook_attempted{};
     bool sound_hook_active{};
 
-    std::unordered_map<uintptr_t, uint32_t> health_by_entity;
     std::unordered_set<std::string> catalogued_names;
+    std::string player_prefix;
     uint32_t player_health{};
+    unsigned other_entities{};
     bool have_player_health{};
     bool logged_player{};
-    bool logged_speed_sample{};
-    float player_speed{};
     bool left_foot{};
+    ULONGLONG last_footstep{};
     unsigned suppressed_hitstops{};
 
     while (!stop_requested.load()) {
@@ -152,22 +187,19 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             sound_hook_attempted = true;
             sound_hook_active = install_sound_hook();
         }
-        if (list_global && !damage_hook_attempted) {
-            damage_hook_attempted = true;
-            install_enemy_damage_hook();
-        }
-
         Vec3 player_position{};
         bool have_player{};
-        bool enemy_damaged = consume_enemy_damage_event();
-        bool player_damaged{};
 
+        // Entity polling now exists only to notice the player taking damage.
+        // Outgoing hits are read from the game's own hit-confirm sound, because
+        // a health decrease somewhere in the entity list is equally true when a
+        // companion or another machine lands the blow.
         if (list_global) {
             uintptr_t list{};
             uint32_t count{};
             if (safe_read(list_global + 0x10, list) && safe_read(list_global + 0x04, count) &&
                 list && count > 0 && count <= 4096 && readable(list, count * 16ULL)) {
-                std::unordered_map<uintptr_t, uint32_t> current_health;
+                unsigned others{};
                 for (uint32_t i = 0; i < count; ++i) {
                     uintptr_t entity{};
                     if (!safe_read(list + i * 16ULL + 8, entity) || !entity) continue;
@@ -179,60 +211,32 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                     const bool valid_health = safe_read(behavior + 0x858, health) &&
                         safe_read(behavior + 0x85C, max_health) && max_health > 0 &&
                         max_health <= 100000000 && health <= max_health;
-                    if (name == "Player") {
-                        if (safe_read(behavior + 0x50, player_position) &&
-                            std::isfinite(player_position.x) && std::isfinite(player_position.y) &&
-                            std::isfinite(player_position.z)) have_player = true;
-                        float speed{};
-                        if (safe_read(behavior + kControllerSpeed, speed) &&
-                            std::isfinite(speed) && speed >= 0.0f && speed < 1000.0f)
-                            player_speed = speed;
-                        if (valid_health) {
-                            if (have_player_health && health < player_health) {
-                                player_damaged = true;
-                                if (config_.haptics_enabled && config_.player_hit_enabled)
-                                    haptics_.play(HapticEffect::PlayerHit, config_.player_hit_strength);
-                                log_line("Event: player damaged (%u -> %u); PlayerHit waveform queued",
-                                         player_health, health);
-                            }
-                            player_health = health;
-                            have_player_health = true;
-                        }
-                    } else if (valid_health) {
-                        current_health[entity] = health;
-                        const auto old = health_by_entity.find(entity);
-                        if (old != health_by_entity.end() && health < old->second && old->second > 0) {
-                            log_line("Event: %s damaged (%u -> %u)", name.c_str(), old->second, health);
-                            enemy_damaged = true;
-                        }
+                    if (name != "Player") {
+                        if (valid_health) ++others;
+                        continue;
                     }
+                    if (safe_read(behavior + 0x50, player_position) &&
+                        std::isfinite(player_position.x) && std::isfinite(player_position.y) &&
+                        std::isfinite(player_position.z)) have_player = true;
+                    if (!valid_health) continue;
+                    if (have_player_health && health < player_health) {
+                        if (config_.haptics_enabled && config_.player_hit_enabled)
+                            haptics_.play(HapticEffect::PlayerHit, config_.player_hit_strength);
+                        log_line("Event: player damaged (%u -> %u); PlayerHit waveform queued",
+                                 player_health, health);
+                    }
+                    player_health = health;
+                    have_player_health = true;
                 }
-                health_by_entity.swap(current_health);
+                other_entities = others;
             }
-        }
-
-        if (enemy_damaged || player_damaged) {
-            const bool applied = config_.hitstop_enabled &&
-                begin_hitstop(config_.hitstop_speed, config_.hitstop_duration_ms,
-                              config_.hitstop_min_interval_ms);
-            if (applied) log_line("Event: hit connected; hitstop applied");
-            else if (config_.hitstop_enabled && ++suppressed_hitstops % 20 == 1)
-                log_line("Event: hit connected; hitstop still cooling down");
-            if (enemy_damaged && !player_damaged && config_.haptics_enabled &&
-                config_.enemy_hit_enabled)
-                haptics_.play(HapticEffect::EnemyHit, config_.enemy_hit_strength);
         }
 
         if (have_player && !logged_player) {
             log_line("Game events: local player acquired (HP %u, position %.2f/%.2f/%.2f, "
-                     "%llu other health-bearing entities)", player_health, player_position.x,
-                     player_position.y, player_position.z,
-                     static_cast<unsigned long long>(health_by_entity.size()));
+                     "%u other health-bearing entities)", player_health, player_position.x,
+                     player_position.y, player_position.z, other_entities);
             logged_player = true;
-        }
-        if (have_player && !logged_speed_sample && player_speed > 0.5f) {
-            log_line("Game events: player controller speed reads %.2f", player_speed);
-            logged_speed_sample = true;
         }
 
         // Everything below is driven by the sounds the game actually plays.
@@ -241,22 +245,57 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             if (!event.name[0]) continue;
             const std::string lowered = lowercase(event.name);
             const SoundKind kind = classify(lowered);
+            // Any `_pl` sound identifies the character the player is currently
+            // controlling, so the prefix follows story sections that swap it.
+            if (is_player_sound(lowered)) {
+                const std::string prefix = model_prefix(lowered);
+                if (!prefix.empty() && prefix != player_prefix) {
+                    player_prefix = prefix;
+                    log_line("Game events: player character sounds are '%s'", prefix.c_str());
+                }
+            }
+            const bool mine = is_player_sound(lowered) ||
+                (!player_prefix.empty() && lowered.rfind(player_prefix + "_", 0) == 0);
+
             if (config_.log_sound_names && catalogued_names.size() < 400 &&
                 catalogued_names.insert(lowered).second) {
-                static const char* kKindNames[] = {"-", "footstep", "menu tick",
-                                                   "menu confirm", "menu cancel"};
-                log_line("Sound: %s (id 0x%08X) [%s]", event.name, event.id,
-                         kKindNames[static_cast<int>(kind)]);
+                static const char* kKindNames[] = {"-", "footstep", "menu tick", "menu confirm",
+                                                   "menu cancel", "player hit"};
+                log_line("Sound: %s (id 0x%08X) [%s%s]", event.name, event.id,
+                         kKindNames[static_cast<int>(kind)], mine ? ", player" : "");
             }
             if (!config_.haptics_enabled) continue;
             switch (kind) {
             case SoundKind::Footstep: {
                 if (!config_.footsteps_enabled) break;
-                if (config_.footstep_require_moving &&
-                    (!have_player || player_speed < config_.footstep_speed_threshold)) break;
-                left_foot = !left_foot;
+                // Companions and machines walk constantly; only the player's own
+                // steps should reach the controller.
+                if (config_.footstep_player_only && !mine) break;
+                if (config_.footstep_require_moving && !have_player) break;
+                const ULONGLONG now = GetTickCount64();
+                if (now - last_footstep < config_.footstep_min_interval_ms) break;
+                last_footstep = now;
+                // The event name states which foot; alternate only when it does not.
+                const Foot foot = foot_of(lowered);
+                if (foot == Foot::Unknown) left_foot = !left_foot;
+                else left_foot = foot == Foot::Left;
+                const float strength = contains(lowered, "walk")
+                    ? config_.footstep_strength * 0.8f
+                    : config_.footstep_strength;
                 haptics_.play(left_foot ? HapticEffect::FootLeft : HapticEffect::FootRight,
-                              config_.footstep_strength);
+                              strength);
+                break;
+            }
+            case SoundKind::PlayerAttackHit: {
+                if (config_.enemy_hit_enabled)
+                    haptics_.play(HapticEffect::EnemyHit, config_.enemy_hit_strength);
+                if (!config_.hitstop_enabled) break;
+                if (begin_hitstop(config_.hitstop_speed, config_.hitstop_duration_ms,
+                                  config_.hitstop_min_interval_ms))
+                    log_line("Event: player hit connected (%s); hitstop applied", event.name);
+                else if (++suppressed_hitstops % 20 == 1)
+                    log_line("Event: player hit connected (%s); hitstop still cooling down",
+                             event.name);
                 break;
             }
             case SoundKind::MenuTick:

@@ -78,7 +78,9 @@ Behavior (`BehaviorAppBase` / `Pl0000`):
 | → controller facing | `0xCA0 + 0x79C` = `0x143C` |
 
 The controller speed is the game's own movement speed. Prefer it over
-differentiating position samples.
+differentiating position samples, but note it is not in world units per second:
+it reads around 570 while running, so treat it as a relative magnitude and
+calibrate against a logged sample rather than assuming a scale.
 
 ## Sound: the Wwise event layer
 
@@ -162,6 +164,28 @@ Footstep event names are **not** in the executable; they live in the packed CPK
 data and arrive as runtime strings, which is exactly why hooking the post
 function (rather than pattern-matching the executable) is the right approach.
 `pl_L_FootStep_R` in `.rdata` is a footprint **VFX attachment**, not a sound.
+
+Footstep and hit names recovered by logging a live session:
+
+| Name | Source |
+| --- | --- |
+| `pl0000_step_walk_L_pl`, `..._R_pl`, `pl0000_step_run_L_pl`, `..._R_pl` | 2B, player-controlled |
+| `pl0200_step_walk_L`, `pl0200_step_run_L`, … | 9S as companion |
+| `em0000_step_L`, `em0000_step_R`, `em0000_step_move` | machines |
+| `core_small_sword_hit`, `core_shot_hit`, `core_shot_bullet_hit` | the player's attack connecting |
+
+### The `_pl` suffix is the player marker
+
+`0x8662C0` appends `_pl`, `_npc` or `_ot` to a character sound name, checks
+whether that variant exists, and falls back to the bare name when it does not.
+In practice the character the player controls gets `_pl` and everyone else falls
+back — so **`_pl` is how you tell the player's own sounds from a companion's or
+an enemy's**. The model prefix before the first underscore (`pl0000` for 2B,
+`pl0200` for 9S) identifies the character, and learning it from any `_pl` sound
+lets it follow the story's character swaps.
+
+Footstep names also state the foot (`_L_` / `_R_`) and the gait (`walk` / `run`),
+so neither has to be inferred.
 
 Related Wwise switches/RTPCs: `SE_FloorCollisionType`, `SE_CharaType`,
 `SE_PlayerType`, `SE_Speed`, `SE_Doppler`, `SE_Occlusion`.

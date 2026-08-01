@@ -54,8 +54,11 @@ Config load_config() {
     c.menu_strength = std::clamp(read_float(L"Haptics", L"MenuStrength", c.menu_strength, path), 0.0f, 1.0f);
     c.footsteps_enabled = read_bool(L"Haptics", L"FootstepsEnabled", c.footsteps_enabled, path);
     c.footstep_strength = std::clamp(read_float(L"Haptics", L"FootstepStrength", c.footstep_strength, path), 0.0f, 1.0f);
+    c.footstep_player_only = read_bool(L"Haptics", L"FootstepPlayerOnly", c.footstep_player_only, path);
     c.footstep_require_moving = read_bool(L"Haptics", L"FootstepRequireMoving", c.footstep_require_moving, path);
-    c.footstep_speed_threshold = std::clamp(read_float(L"Haptics", L"FootstepSpeedThreshold", c.footstep_speed_threshold, path), 0.0f, 50.0f);
+    const int footstep_gap = static_cast<int>(GetPrivateProfileIntW(
+        L"Haptics", L"FootstepMinIntervalMs", c.footstep_min_interval_ms, path.c_str()));
+    c.footstep_min_interval_ms = static_cast<unsigned>(std::clamp(footstep_gap, 0, 1000));
     c.log_sound_names = read_bool(L"Diagnostics", L"LogSoundNames", c.log_sound_names, path);
     c.enemy_hit_enabled = read_bool(L"Haptics", L"EnemyHitEnabled", c.enemy_hit_enabled, path);
     c.enemy_hit_strength = std::clamp(read_float(L"Haptics", L"EnemyHitStrength", c.enemy_hit_strength, path), 0.0f, 1.0f);
