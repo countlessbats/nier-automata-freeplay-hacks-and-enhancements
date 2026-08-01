@@ -6,7 +6,7 @@ struct Config {
     bool haptics_enabled{true};
     bool hitstop_enabled{true};
     float hitstop_speed{0.08f};
-    unsigned hitstop_duration_ms{180};
+    unsigned hitstop_duration_ms{1000};
     float enemy_range{80.0f};
 
     bool menu_enabled{true};
@@ -23,4 +23,3 @@ struct Config {
 std::wstring module_directory();
 Config load_config();
 void log_line(const char* format, ...);
-

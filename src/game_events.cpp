@@ -53,13 +53,13 @@ uintptr_t find_pattern(const unsigned char* pattern, const char* mask, size_t le
 
 uintptr_t find_entity_list_global() {
     static constexpr unsigned char pattern[] = {
-        0x48,0xC1,0xE1,0x04,0x48,0x03,0x00,0x00,0x00,0x00,0x00,0x8B,
-        0x01,0x33,0xC2,0xA9,0x00,0xFF,0xFF,0xFF,0x75,0x0F,0x48,0x8B,0x41,0x08};
-    const auto found = find_pattern(pattern, "xxxxxx?????xxxxxxxxxxxxxxx", sizeof(pattern));
+        0x44,0x8B,0x0D,0x00,0x00,0x00,0x00,0x44,
+        0x39,0x0D,0x00,0x00,0x00,0x00,0x75,0x24};
+    const auto found = find_pattern(pattern, "xxx????xxx????xx", sizeof(pattern));
     if (!found) return 0;
     int32_t displacement{};
-    if (!safe_read(found + 7, displacement)) return 0;
-    return found + 11 + displacement;
+    if (!safe_read(found + 3, displacement)) return 0;
+    return found + 7 + displacement;
 }
 
 bool get_name(uintptr_t entity, std::string& out) {
@@ -112,9 +112,13 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     bool have_player_health{};
     Vec3 previous_position{};
     bool have_position{};
+    bool have_tick{};
+    bool logged_player{};
+    float previous_tick{};
+    ULONGLONG last_tick_advance{};
     float step_progress{};
     bool left_foot{};
-    bool menu_likely{true};
+    bool menu_likely{};
     WORD previous_buttons{};
     int previous_stick_direction{};
     ULONGLONG last_menu_pulse{};
@@ -131,13 +135,15 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         }
         uintptr_t player_behavior{};
         Vec3 player_position{};
+        float player_tick{};
+        bool player_tick_valid{};
         bool have_player{};
         bool enemy_damaged{};
 
         if (list_global) {
             uintptr_t list{};
             uint32_t count{};
-            if (safe_read(list_global, list) && safe_read(list_global - 0x10, count) &&
+            if (safe_read(list_global + 0x10, list) && safe_read(list_global + 0x04, count) &&
                 list && count > 0 && count <= 4096 && readable(list, count * 16ULL)) {
                 std::unordered_map<uint32_t, uint32_t> current_health;
                 for (uint32_t i = 0; i < count && !have_player; ++i) {
@@ -151,6 +157,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                         std::isfinite(player_position.z)) {
                         player_behavior = behavior;
                         have_player = true;
+                        player_tick_valid = safe_read(behavior + 0x9C, player_tick);
                     }
                 }
                 for (uint32_t i = 0; i < count; ++i) {
@@ -159,8 +166,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                     std::string name;
                     if (!get_name(entity, name)) continue;
                     uintptr_t behavior{};
-                    if (!safe_read(entity + 0x48, behavior) || !behavior ||
-                        !readable(behavior, 0x85C)) continue;
+                    if (!safe_read(entity + 0x48, behavior) || !behavior) continue;
                     uint32_t handle{}, health{};
                     safe_read(entity + 0x30, handle);
                     if (name == "Player") {
@@ -168,6 +174,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                         if (safe_read(behavior + 0x50, player_position) &&
                             std::isfinite(player_position.x) && std::isfinite(player_position.y) &&
                             std::isfinite(player_position.z)) have_player = true;
+                        player_tick_valid = safe_read(behavior + 0x9C, player_tick) || player_tick_valid;
                         if (safe_read(behavior + 0x858, health) && health <= 100000000) {
                             if (have_player_health && health < player_health) {
                                 if (config_.haptics_enabled && config_.player_hit_enabled)
@@ -194,6 +201,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         }
 
         if (enemy_damaged) {
+            log_line("Event: nearby enemy damaged; applying hitstop");
             if (config_.hitstop_enabled)
                 begin_hitstop(config_.hitstop_speed, config_.hitstop_duration_ms);
             if (config_.haptics_enabled && config_.enemy_hit_enabled)
@@ -201,11 +209,23 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         }
 
         if (have_player) {
+            const ULONGLONG now = GetTickCount64();
+            if (!logged_player) {
+                log_line("Game events: local player acquired (HP %u, position %.2f/%.2f/%.2f)",
+                         player_health, player_position.x, player_position.y, player_position.z);
+                logged_player = true;
+            }
+            if (player_tick_valid &&
+                (!have_tick || std::abs(player_tick - previous_tick) > 0.00001f)) {
+                previous_tick = player_tick;
+                last_tick_advance = now;
+                have_tick = true;
+            }
+            menu_likely = player_tick_valid && have_tick && now - last_tick_advance >= 100;
             if (have_position) {
                 const float horizontal = horizontal_distance(player_position, previous_position);
                 const float vertical = std::abs(player_position.y - previous_position.y);
-                if (horizontal > 0.015f) menu_likely = false;
-                if (!menu_likely && horizontal < 0.18f && vertical < 0.045f)
+                if (horizontal < 0.18f && vertical < 0.045f)
                     step_progress += horizontal;
                 else if (horizontal >= 3.0f) step_progress = 0.0f;
                 if (step_progress >= config_.footstep_distance) {
@@ -220,6 +240,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             have_position = true;
         } else {
             have_position = false;
+            have_tick = false;
             step_progress = 0.0f;
             menu_likely = true;
         }
@@ -233,7 +254,6 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             if (connected) {
                 const WORD buttons = state.Gamepad.wButtons;
                 const WORD rising = buttons & ~previous_buttons;
-                if (rising & (XINPUT_GAMEPAD_START | XINPUT_GAMEPAD_BACK)) menu_likely = true;
                 int stick_direction{};
                 if (state.Gamepad.sThumbLX < -18000 || state.Gamepad.sThumbLY < -18000) stick_direction = -1;
                 else if (state.Gamepad.sThumbLX > 18000 || state.Gamepad.sThumbLY > 18000) stick_direction = 1;

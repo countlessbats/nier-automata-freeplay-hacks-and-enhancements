@@ -8,7 +8,7 @@ NieR:Automata (build 7020666).
 - True DualSense waveform haptics over the controller's USB audio endpoint.
 - Distinct pulses for menu movement, footsteps, outgoing hits, and damage taken.
 - Alternating left/right footstep texture based on actual distance travelled.
-- Hitstop whenever a nearby enemy loses health: 8% game speed for 180 ms by
+- Hitstop whenever a nearby enemy loses health: 8% game speed for 1000 ms by
   default.
 - Plain-text configuration in `NierHaptics.ini`.
 
@@ -34,7 +34,7 @@ For this source checkout, run `Build.ps1` first.
 Edit `NierHaptics.ini` beside `NieRAutomata.exe`, then restart the game. Strength
 values range from 0.0 to 1.0. Set any feature's `Enabled` value to 0 to disable it.
 
-`HitstopDurationMs` is real-world time, so the default 180 ms stays brief even
+`HitstopDurationMs` is real-world time. The diagnostic default is currently 1000 ms even
 though the game itself advances at only 8% speed during the effect.
 
 ## Troubleshooting
@@ -63,4 +63,3 @@ MIT-licensed [AutomataMP SDK](https://github.com/praydog/AutomataMP). DualSense
 USB/audio behavior was cross-checked against the public
 [DualSense hardware notes](https://github.com/nondebug/dualsense) and the
 [Linux hid-playstation driver](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-playstation.c).
-
