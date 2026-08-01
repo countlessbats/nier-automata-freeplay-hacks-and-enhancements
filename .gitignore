@@ -14,3 +14,11 @@ analysis/__pycache__/
 
 # Runtime logs
 *.log
+
+# Bulk data extracted from the game binary - do not publish
+analysis/exe_strings.txt
+# Screen captures that may include the desktop rather than only the game window
+analysis/game_screen.png
+analysis/panel_check.png
+analysis/virtual_screen.png
+analysis/panel_visible.png
