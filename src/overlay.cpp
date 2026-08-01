@@ -61,12 +61,6 @@ void write_float(const wchar_t* section, const wchar_t* key, float value) {
     write_setting(section, key, text);
 }
 
-void write_unsigned(const wchar_t* section, const wchar_t* key, unsigned value) {
-    wchar_t text[32]{};
-    swprintf_s(text, L"%u", value);
-    write_setting(section, key, text);
-}
-
 // Step-by-step breadcrumbs through the one-time initialisation. log_line closes
 // the file every call, so the last line written survives a crash.
 void step(const char* what) {
@@ -93,15 +87,49 @@ bool create_target(IDXGISwapChain* swap_chain) {
 LRESULT CALLBACK overlay_wndproc(HWND window, UINT message, WPARAM w, LPARAM l) {
     if (g_visible) {
         ImGui_ImplWin32_WndProcHandler(window, message, w, l);
-        const ImGuiIO& io = ImGui::GetIO();
-        // Swallow the input the panel is using so it does not also reach the
-        // game, but let everything else through.
+        // While the panel is open every keyboard and mouse message is consumed,
+        // not just the ones ImGui asks for. Navigating with the arrow keys must
+        // not also walk the player around.
         const bool mouse = message >= WM_MOUSEFIRST && message <= WM_MOUSELAST;
         const bool keyboard = message >= WM_KEYFIRST && message <= WM_KEYLAST;
-        if ((mouse && io.WantCaptureMouse) || (keyboard && io.WantCaptureKeyboard)) return 1;
+        if (mouse || keyboard) return 1;
     }
     return CallWindowProcW(g_original_wndproc, window, message, w, l);
 }
+
+// The game does not rely on window messages alone: it polls GetAsyncKeyState and
+// GetKeyState and reads the pad through XInput. Each is answered with "nothing
+// is pressed" while the panel is open, which is what keeps the game still.
+//
+// Its DirectInput devices are deliberately left alone. Wrapping them crashed the
+// game on startup every time, and the paths above already cover the keyboard and
+// the controller, so the risk bought nothing.
+using GetAsyncKeyStateFn = SHORT(WINAPI*)(int);
+using GetKeyStateFn = SHORT(WINAPI*)(int);
+using XInputGetStateFn = DWORD(WINAPI*)(DWORD, void*);
+
+GetAsyncKeyStateFn g_get_async_key_state{};
+GetKeyStateFn g_get_key_state{};
+XInputGetStateFn g_xinput_get_state{};
+SHORT WINAPI get_async_key_state_hook(int key) {
+    if (g_visible) return 0;
+    return g_get_async_key_state(key);
+}
+
+SHORT WINAPI get_key_state_hook(int key) {
+    if (g_visible) return 0;
+    return g_get_key_state(key);
+}
+
+DWORD WINAPI xinput_get_state_hook(DWORD user, void* state) {
+    const DWORD result = g_xinput_get_state(user, state);
+    if (g_visible && result == ERROR_SUCCESS && state) {
+        // Keep the packet number, blank the buttons and sticks.
+        memset(static_cast<char*>(state) + 4, 0, 12);
+    }
+    return result;
+}
+
 
 void draw_panel() {
     if (!g_settings_loaded) { g_settings = load_config(); g_settings_loaded = true; }
@@ -122,13 +150,6 @@ void draw_panel() {
             write_float(L"Haptics", L"FootstepStrength", g_settings.footstep_strength);
         if (ImGui::Checkbox("During combat", &g_settings.footsteps_in_combat))
             write_bool(L"Haptics", L"FootstepsInCombat", g_settings.footsteps_in_combat);
-        if (ImGui::Checkbox("Yours only", &g_settings.footstep_player_only))
-            write_bool(L"Haptics", L"FootstepPlayerOnly", g_settings.footstep_player_only);
-        int combat = static_cast<int>(g_settings.combat_window_ms);
-        if (ImGui::SliderInt("Combat lasts (ms)", &combat, 250, 15000)) {
-            g_settings.combat_window_ms = static_cast<unsigned>(combat);
-            write_unsigned(L"Haptics", L"CombatWindowMs", g_settings.combat_window_ms);
-        }
     }
 
     if (ImGui::CollapsingHeader("Combat and menus", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -192,7 +213,13 @@ void render_overlay(IDXGISwapChain* swap_chain) {
                 step("render target created");
                 IMGUI_CHECKVERSION();
                 ImGui::CreateContext();
-                ImGui::GetIO().IniFilename = nullptr;
+                ImGuiIO& io = ImGui::GetIO();
+                io.IniFilename = nullptr;
+                // Arrow keys move between controls, Enter and Space activate
+                // them, Escape backs out. The game never sees any of it.
+                io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+                // The game hides the system cursor, so ImGui draws its own.
+                io.MouseDrawCursor = true;
                 ImGui::StyleColorsDark();
                 step("imgui context created");
                 const bool win32_ready = ImGui_ImplWin32_Init(g_window);
@@ -341,6 +368,36 @@ HRESULT WINAPI create_factory_hook(REFIID riid, void** out) {
     return hr;
 }
 
+// XInput is imported by ordinal rather than by name, so it needs its own lookup.
+bool patch_main_import_ordinal(const char* dll_name, WORD ordinal, void* replacement,
+                               void** original) {
+    auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
+    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    const auto& directory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!directory.VirtualAddress) return false;
+    auto* descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + directory.VirtualAddress);
+    for (; descriptor->Name; ++descriptor) {
+        if (_stricmp(reinterpret_cast<const char*>(base + descriptor->Name), dll_name) != 0) continue;
+        auto* names = reinterpret_cast<IMAGE_THUNK_DATA64*>(
+            base + (descriptor->OriginalFirstThunk ? descriptor->OriginalFirstThunk
+                                                   : descriptor->FirstThunk));
+        auto* slots = reinterpret_cast<IMAGE_THUNK_DATA64*>(base + descriptor->FirstThunk);
+        for (; names->u1.AddressOfData; ++names, ++slots) {
+            if (!IMAGE_SNAP_BY_ORDINAL64(names->u1.Ordinal)) continue;
+            if (IMAGE_ORDINAL64(names->u1.Ordinal) != ordinal) continue;
+            DWORD protection{};
+            if (!VirtualProtect(&slots->u1.Function, sizeof(void*), PAGE_READWRITE, &protection))
+                return false;
+            *original = reinterpret_cast<void*>(slots->u1.Function);
+            slots->u1.Function = reinterpret_cast<ULONGLONG>(replacement);
+            VirtualProtect(&slots->u1.Function, sizeof(void*), protection, &protection);
+            return true;
+        }
+    }
+    return false;
+}
+
 bool patch_main_import(const char* dll_name, const char* function_name, void* replacement,
                        void** original) {
     auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
@@ -387,9 +444,25 @@ bool install_overlay() {
         return false;
     }
     g_create_factory = reinterpret_cast<CreateDXGIFactoryFn>(original);
+
+    // Input paths the game uses that bypass window messages entirely.
+    if (patch_main_import("USER32.dll", "GetAsyncKeyState",
+                          reinterpret_cast<void*>(&get_async_key_state_hook), &original))
+        g_get_async_key_state = reinterpret_cast<GetAsyncKeyStateFn>(original);
+    if (patch_main_import("USER32.dll", "GetKeyState",
+                          reinterpret_cast<void*>(&get_key_state_hook), &original))
+        g_get_key_state = reinterpret_cast<GetKeyStateFn>(original);
+    if (patch_main_import_ordinal("XINPUT1_4.dll", 2,
+                                  reinterpret_cast<void*>(&xinput_get_state_hook), &original))
+        g_xinput_get_state = reinterpret_cast<XInputGetStateFn>(original);
+    log_line("Overlay: input will be held back from the game while the panel is open");
+
     log_line("Overlay: waiting for the game to create its swap chain");
     return true;
 }
+
+bool overlay_is_open() { return g_visible; }
+
 
 void shutdown_overlay() {
     if (!g_initialised) return;

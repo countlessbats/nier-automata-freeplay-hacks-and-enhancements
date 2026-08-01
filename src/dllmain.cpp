@@ -27,7 +27,7 @@ FARPROC real_export(const char* name) {
 
 DWORD WINAPI mod_thread(void*) {
     const Config config = load_config();
-    log_line("NieR Haptics 1.0.16 starting");
+    log_line("NieR Haptics 1.0.17 starting");
     if (config.overlay_enabled) install_overlay();
     Haptics haptics;
     if (config.haptics_enabled) haptics.start();
@@ -44,7 +44,8 @@ extern "C" __declspec(dllexport) HRESULT WINAPI DirectInput8Create(
     HINSTANCE instance, DWORD version, REFIID iid, LPVOID* output, LPUNKNOWN outer) {
     using Fn = HRESULT(WINAPI*)(HINSTANCE, DWORD, REFIID, LPVOID*, LPUNKNOWN);
     const auto function = reinterpret_cast<Fn>(real_export("DirectInput8Create"));
-    return function ? function(instance, version, iid, output, outer) : E_FAIL;
+    if (!function) return E_FAIL;
+    return function(instance, version, iid, output, outer);
 }
 
 STDAPI DllCanUnloadNow() {

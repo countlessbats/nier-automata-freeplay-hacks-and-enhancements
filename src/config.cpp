@@ -71,11 +71,7 @@ Config load_config() {
     c.menu_strength = std::clamp(read_float(L"Haptics", L"MenuStrength", c.menu_strength, path), 0.0f, 1.0f);
     c.footsteps_enabled = read_bool(L"Haptics", L"FootstepsEnabled", c.footsteps_enabled, path);
     c.footstep_strength = std::clamp(read_float(L"Haptics", L"FootstepStrength", c.footstep_strength, path), 0.0f, 1.0f);
-    c.footstep_player_only = read_bool(L"Haptics", L"FootstepPlayerOnly", c.footstep_player_only, path);
     c.footsteps_in_combat = read_bool(L"Haptics", L"FootstepsInCombat", c.footsteps_in_combat, path);
-    const int combat_window = static_cast<int>(GetPrivateProfileIntW(
-        L"Haptics", L"CombatWindowMs", c.combat_window_ms, path.c_str()));
-    c.combat_window_ms = static_cast<unsigned>(std::clamp(combat_window, 250, 30000));
     c.footstep_require_moving = read_bool(L"Haptics", L"FootstepRequireMoving", c.footstep_require_moving, path);
     const int footstep_gap = static_cast<int>(GetPrivateProfileIntW(
         L"Haptics", L"FootstepMinIntervalMs", c.footstep_min_interval_ms, path.c_str()));

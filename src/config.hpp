@@ -15,10 +15,9 @@ struct Config {
     // Footsteps follow the game's own footstep sounds. Companions and machines
     // walk constantly, so only sounds belonging to the player's own character
     // are used; the remaining settings guard against layered duplicates.
-    bool footstep_player_only{true};
     // Footsteps during a fight add clutter under the hit and damage effects.
+    // Combat start and end come from the game's own battle flag.
     bool footsteps_in_combat{false};
-    unsigned combat_window_ms{4000};
     bool footstep_require_moving{true};
     unsigned footstep_min_interval_ms{70};
     bool enemy_hit_enabled{true};

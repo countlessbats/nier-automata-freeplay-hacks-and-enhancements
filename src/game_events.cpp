@@ -85,6 +85,56 @@ uintptr_t find_pattern(const unsigned char* pattern, const char* mask, size_t le
     return 0;
 }
 
+// The game keeps its own "in battle" flag: the battle BGM dispatcher asks a
+// singleton for it every frame, and that answer is what starts and stops the
+// battle track. Reading the same flag means combat ends exactly when the game
+// says it does, instead of after a guessed timeout.
+using BattleQueryFn = bool(__fastcall*)(void*);
+uintptr_t g_battle_singleton{};
+constexpr size_t kBattleVtableIndex = 0x130 / sizeof(void*);   // 38
+
+bool find_battle_state() {
+    // push rbx / sub rsp,0x20 / mov rbx,rcx / call <getter> / mov rcx,rax /
+    // mov rdx,[rax] / call qword [rdx+0x130] / mov ecx,[rbx] / test eax,eax
+    static constexpr unsigned char pattern[] = {
+        0x40,0x53,0x48,0x83,0xEC,0x20,0x48,0x8B,0xD9,0xE8,0,0,0,0,
+        0x48,0x8B,0xC8,0x48,0x8B,0x10,0xFF,0x92,0x30,0x01,0x00,0x00,
+        0x8B,0x0B,0x85,0xC0};
+    static constexpr char mask[] = "xxxxxxxxxx????xxxxxxxxxxxxxxxx";
+    static_assert(sizeof(mask) - 1 == sizeof(pattern), "mask must cover every byte");
+    const uintptr_t site = find_pattern(pattern, mask, sizeof(pattern));
+    if (!site) return false;
+    int32_t displacement{};
+    if (!safe_read(site + 10, displacement)) return false;
+    const uintptr_t getter = site + 14 + displacement;
+    // The getter is a single `mov rax, [rip+disp]; ret`.
+    if (!readable(getter, 7)) return false;
+    const auto* prologue = reinterpret_cast<const unsigned char*>(getter);
+    if (prologue[0] != 0x48 || prologue[1] != 0x8B || prologue[2] != 0x05) return false;
+    int32_t global_displacement{};
+    if (!safe_read(getter + 3, global_displacement)) return false;
+    g_battle_singleton = getter + 7 + global_displacement;
+    log_line("Game events: battle state at NieRAutomata.exe+0x%llX",
+             static_cast<unsigned long long>(g_battle_singleton -
+             reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
+    return true;
+}
+
+bool query_in_battle(bool& in_battle) {
+    if (!g_battle_singleton) return false;
+    uintptr_t object{}, vtable{}, function{};
+    if (!safe_read(g_battle_singleton, object) || !object) return false;
+    if (!safe_read(object, vtable) || !vtable) return false;
+    if (!safe_read(vtable + kBattleVtableIndex * sizeof(void*), function) || !function)
+        return false;
+    __try {
+        in_battle = reinterpret_cast<BattleQueryFn>(function)(reinterpret_cast<void*>(object));
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 uintptr_t find_entity_list_global() {
     static constexpr unsigned char pattern[] = {
         0x44,0x8B,0x0D,0x00,0x00,0x00,0x00,0x44,
@@ -171,16 +221,6 @@ SoundKind classify(const std::string& lowered) {
 // Only sounds carrying the player's own model prefix count. Weapon sounds such
 // as `wpf000_combo_swing_01` were tried and are not usable: the companion plays
 // them too, so they let 9S's swings through.
-// "In combat" from events the game actually posts. The BGM battle events are
-// authoritative when they appear; otherwise recent fighting activity stands in,
-// which avoids depending on names that have never been observed live.
-bool is_combat_start(const std::string& l) {
-    return l == "bgm_battle_start" || l == "bgm_battle" || contains(l, "target_lockon");
-}
-bool is_combat_end(const std::string& l) {
-    return l == "bgm_battle_end" || l == "bgm_battle_end_timer" || contains(l, "target_lockoff");
-}
-
 bool is_jump_sound(const std::string& lowered, const std::string& player_prefix) {
     if (player_prefix.empty() || lowered.rfind(player_prefix + "_", 0) != 0) return false;
     return contains(lowered, "jump");
@@ -243,8 +283,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     ULONGLONG last_footstep{};
     ULONGLONG last_player_attack{};
     ULONGLONG last_jump_sound{};
-    ULONGLONG combat_activity{};
-    bool bgm_combat{};
+    bool in_battle{};
+    bool logged_battle_state{};
     unsigned long long config_seen = config_stamp();
     uintptr_t player_behavior{};
     std::vector<uint32_t> grounded_snapshot;
@@ -275,12 +315,24 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         if (list_global && !sound_hook_attempted) {
             sound_hook_attempted = true;
             sound_hook_active = install_sound_hook();
+            find_battle_state();
             // Same timing constraint as the sound hook: the code signature
             // only exists once the executable has decrypted itself.
             if (config_.keep_chips_on_death) install_chip_keeper();
         }
         Vec3 player_position{};
         bool have_player{};
+
+        if (bool battle{}; query_in_battle(battle)) {
+            if (battle != in_battle) {
+                in_battle = battle;
+                if (!logged_battle_state) {
+                    log_line("Game events: the game reports combat %s",
+                             battle ? "started" : "ended");
+                    logged_battle_state = true;
+                }
+            }
+        }
 
         // Entity polling now exists only to notice the player taking damage.
         // Outgoing hits are read from the game's own hit-confirm sound, because
@@ -333,7 +385,6 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                     if (have_player_health && health < player_health) {
                         if (config_.haptics_enabled && config_.player_hit_enabled)
                             haptics_.play(HapticEffect::PlayerHit, config_.player_hit_strength);
-                        combat_activity = GetTickCount64();
                         log_line("Event: player damaged (%u -> %u); PlayerHit waveform queued",
                                  player_health, health);
                     }
@@ -360,10 +411,6 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             if (is_attack_sound(lowered, player_prefix)) last_player_attack = GetTickCount64();
             if (config_.probe_jump_fields && is_jump_sound(lowered, player_prefix))
                 last_jump_sound = GetTickCount64();
-            if (is_combat_start(lowered)) { bgm_combat = true; combat_activity = GetTickCount64(); }
-            else if (is_combat_end(lowered)) bgm_combat = false;
-            if (kind == SoundKind::MeleeHit || is_attack_sound(lowered, player_prefix))
-                combat_activity = GetTickCount64();
 
             // Any `_pl` sound identifies the character the player is currently
             // controlling, so the prefix follows story sections that swap it.
@@ -389,13 +436,10 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             case SoundKind::Footstep: {
                 if (!config_.footsteps_enabled) break;
                 // Companions and machines walk constantly; only the player's own
-                // steps should reach the controller.
-                if (config_.footstep_player_only && !mine) break;
+                // steps ever reach the controller.
+                if (!mine) break;
                 if (config_.footstep_require_moving && !have_player) break;
-                if (!config_.footsteps_in_combat) {
-                    const ULONGLONG since = GetTickCount64() - combat_activity;
-                    if (bgm_combat || (combat_activity && since < config_.combat_window_ms)) break;
-                }
+                if (!config_.footsteps_in_combat && in_battle) break;
                 const ULONGLONG now = GetTickCount64();
                 if (now - last_footstep < config_.footstep_min_interval_ms) break;
                 last_footstep = now;
