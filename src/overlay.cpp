@@ -98,12 +98,52 @@ LRESULT CALLBACK overlay_wndproc(HWND window, UINT message, WPARAM w, LPARAM l) 
 }
 
 // The game does not rely on window messages alone: it polls GetAsyncKeyState and
-// GetKeyState and reads the pad through XInput. Each is answered with "nothing
-// is pressed" while the panel is open, which is what keeps the game still.
-//
-// Its DirectInput devices are deliberately left alone. Wrapping them crashed the
-// game on startup every time, and the paths above already cover the keyboard and
-// the controller, so the risk bought nothing.
+// GetKeyState, reads the pad through XInput, and reads the keyboard through
+// DirectInput. Each is answered with "nothing is pressed" while the panel is
+// open, which is what actually keeps the game still.
+
+using GetDeviceStateFn = HRESULT(STDMETHODCALLTYPE*)(void*, DWORD, void*);
+using GetDeviceDataFn = HRESULT(STDMETHODCALLTYPE*)(void*, DWORD, void*, DWORD*, DWORD);
+using CreateDeviceFn = HRESULT(STDMETHODCALLTYPE*)(void*, const GUID&, void**, void*);
+
+CreateDeviceFn g_create_device{};
+
+// Every DirectInput device gets its own cloned vtable, so its original functions
+// have to be remembered per device rather than shared: two devices with
+// different implementations would otherwise be sent to the wrong original.
+struct DeviceHooks {
+    void** clone{};
+    GetDeviceStateFn state{};
+    GetDeviceDataFn data{};
+};
+DeviceHooks g_devices[16]{};
+volatile LONG g_device_count{};
+
+const DeviceHooks* hooks_for(void* device) {
+    auto** vtable = *reinterpret_cast<void***>(device);
+    const LONG count = g_device_count;
+    for (LONG i = 0; i < count && i < 16; ++i)
+        if (g_devices[i].clone == vtable) return &g_devices[i];
+    return nullptr;
+}
+
+HRESULT STDMETHODCALLTYPE get_device_state_hook(void* device, DWORD size, void* data) {
+    const DeviceHooks* hooks = hooks_for(device);
+    if (!hooks || !hooks->state) return E_FAIL;
+    const HRESULT hr = hooks->state(device, size, data);
+    if (g_visible && SUCCEEDED(hr) && data) memset(data, 0, size);
+    return hr;
+}
+
+HRESULT STDMETHODCALLTYPE get_device_data_hook(void* device, DWORD size, void* data,
+                                               DWORD* count, DWORD flags) {
+    const DeviceHooks* hooks = hooks_for(device);
+    if (!hooks || !hooks->data) return E_FAIL;
+    const HRESULT hr = hooks->data(device, size, data, count, flags);
+    if (g_visible && SUCCEEDED(hr) && count) *count = 0;
+    return hr;
+}
+
 using GetAsyncKeyStateFn = SHORT(WINAPI*)(int);
 using GetKeyStateFn = SHORT(WINAPI*)(int);
 using XInputGetStateFn = DWORD(WINAPI*)(DWORD, void*);
@@ -148,8 +188,8 @@ void draw_panel() {
             write_bool(L"Haptics", L"FootstepsEnabled", g_settings.footsteps_enabled);
         if (ImGui::SliderFloat("Intensity##foot", &g_settings.footstep_strength, 0.0f, 0.3f, "%.3f"))
             write_float(L"Haptics", L"FootstepStrength", g_settings.footstep_strength);
-        if (ImGui::Checkbox("During combat", &g_settings.footsteps_in_combat))
-            write_bool(L"Haptics", L"FootstepsInCombat", g_settings.footsteps_in_combat);
+        if (ImGui::Checkbox("Only while sprinting", &g_settings.footsteps_sprint_only))
+            write_bool(L"Haptics", L"FootstepsSprintOnly", g_settings.footsteps_sprint_only);
     }
 
     if (ImGui::CollapsingHeader("Combat and menus", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -369,6 +409,29 @@ HRESULT WINAPI create_factory_hook(REFIID riid, void** out) {
 }
 
 // XInput is imported by ordinal rather than by name, so it needs its own lookup.
+HRESULT STDMETHODCALLTYPE create_device_hook(void* self, const GUID& guid, void** device,
+                                             void* outer) {
+    const HRESULT hr = g_create_device(self, guid, device, outer);
+    if (SUCCEEDED(hr) && device && *device && g_device_count < 16) {
+        // Cloned generously. A 16-entry copy of the DirectInput object is what
+        // crashed 1.0.17: the game calls through slots past the interface a
+        // short copy covers, exactly as it did with the DXGI factory.
+        auto** vtable = clone_vtable(*device, 128);
+        DeviceHooks& entry = g_devices[g_device_count];
+        entry.state = reinterpret_cast<GetDeviceStateFn>(vtable[9]);
+        entry.data = reinterpret_cast<GetDeviceDataFn>(vtable[10]);
+        entry.clone = vtable;
+        // Published only once the originals are stored, so a device polled from
+        // another thread never reaches a half-built entry.
+        InterlockedIncrement(&g_device_count);
+        vtable[9] = reinterpret_cast<void*>(&get_device_state_hook);
+        vtable[10] = reinterpret_cast<void*>(&get_device_data_hook);
+        log_line("Overlay: DirectInput device %ld will report idle while the panel is open",
+                 g_device_count);
+    }
+    return hr;
+}
+
 bool patch_main_import_ordinal(const char* dll_name, WORD ordinal, void* replacement,
                                void** original) {
     auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
@@ -462,6 +525,17 @@ bool install_overlay() {
 }
 
 bool overlay_is_open() { return g_visible; }
+
+void hook_direct_input(void* direct_input) {
+    if (!direct_input) return;
+    static bool done = false;
+    if (done) return;
+    done = true;
+    auto** vtable = clone_vtable(direct_input, 128);
+    g_create_device = reinterpret_cast<CreateDeviceFn>(vtable[3]);
+    vtable[3] = reinterpret_cast<void*>(&create_device_hook);
+    log_line("Overlay: watching DirectInput device creation");
+}
 
 
 void shutdown_overlay() {

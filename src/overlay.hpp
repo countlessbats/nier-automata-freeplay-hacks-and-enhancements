@@ -7,3 +7,7 @@ void shutdown_overlay();
 // True while the panel is open, so input can be kept away from the game.
 bool overlay_is_open();
 
+// Wraps the game's DirectInput object so its devices report idle while the
+// panel is open. Call with the interface DirectInput8Create returned.
+void hook_direct_input(void* direct_input);
+

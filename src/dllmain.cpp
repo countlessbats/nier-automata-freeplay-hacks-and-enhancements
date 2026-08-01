@@ -27,7 +27,7 @@ FARPROC real_export(const char* name) {
 
 DWORD WINAPI mod_thread(void*) {
     const Config config = load_config();
-    log_line("NieR Haptics 1.0.17 starting");
+    log_line("NieR Haptics 1.0.21 starting");
     if (config.overlay_enabled) install_overlay();
     Haptics haptics;
     if (config.haptics_enabled) haptics.start();
@@ -45,6 +45,10 @@ extern "C" __declspec(dllexport) HRESULT WINAPI DirectInput8Create(
     using Fn = HRESULT(WINAPI*)(HINSTANCE, DWORD, REFIID, LPVOID*, LPUNKNOWN);
     const auto function = reinterpret_cast<Fn>(real_export("DirectInput8Create"));
     if (!function) return E_FAIL;
+    // Deliberately not wrapped. Replacing the DirectInput object's vtable
+    // pointer crashed the game on startup three times, including with a clone
+    // large enough to rule out the short-copy fault that broke the DXGI
+    // factory. Silencing DirectInput needs a real forwarding COM wrapper.
     return function(instance, version, iid, output, outer);
 }
 

@@ -6,20 +6,26 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.17**, commit `73fec73`.
+- Installed build: **1.0.21**, commit pending.
 - Installed DLL SHA-256:
-  `A5803E3B1D643B93BDE02476392BE65FF3716842D3E28630CF3DF8698645107E`.
+  `976E663423AAA25910E4373ED62430219CC2E6A78DC8A14DBBC1D889624A435C`.
 - Git has **no configured remote**, so nothing has been pushed. Every commit is
   local only. This must be reported whenever work is called complete.
 - **1.0.17 is installed, launched and verified.** The next build must be
   **1.0.18** with a matching commit.
-- Combat is read from the game's own battle flag: the singleton pointer at
-  `NieRAutomata.exe+0x10177E8`, queried through vtable slot 38 (`+0x130`). That
-  is the same flag the battle BGM dispatcher uses, so combat ends exactly when
-  the music does. There is no timeout any more.
-- **Do not wrap the game's DirectInput devices.** Two attempts crashed it on
-  startup before the renderer hook even ran. Window messages, GetAsyncKeyState,
-  GetKeyState and XInput are hooked instead and cover keyboard and pad.
+- Footsteps are gated on gait, not combat. The event names carry it
+  (`_step_walk_` against `_step_run_` / `_step_dash_`), so `FootstepsSprintOnly`
+  is exact rather than inferred. Combat suppression was removed: the game's
+  battle flag only tracks what the battle music tracks, so wildlife never
+  counted, and lock-on stuck on after a death. The battle flag itself is still
+  documented in the internals doc if it is ever wanted.
+- **Do not wrap the game's DirectInput objects by swapping vtable pointers.**
+  Three attempts crashed the game on startup, including one with a 128-entry
+  clone that rules out the short-copy fault which broke the DXGI factory. The
+  panel therefore still leaks keyboard input to the game: window messages,
+  GetAsyncKeyState, GetKeyState and XInput are blocked, DirectInput is not.
+  Doing it properly needs a real forwarding COM wrapper object rather than
+  patching the object the game already holds.
 
 ## The in-game overlay works and is on by default
 
