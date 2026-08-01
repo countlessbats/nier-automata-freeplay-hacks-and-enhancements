@@ -16,6 +16,17 @@
 - Settings now hot-reload: the mod watches the INI's last-write time and
   reloads within a poll. `tools/ControlPanel.ps1` (launcher `ControlPanel.bat`)
   edits the INI live and toggles with F10 from anywhere.
+- **Keeping plug-in chips on death is live**, contributed by a parallel session
+  and shipped in the same 1.0.13 build. `src/chip_keeper.cpp` signature-scans
+  the game-over state machine's single call to the death-penalty routine,
+  verifies the callee's prologue byte for byte, and NOPs the 5-byte call. The
+  corpse still spawns and recovery returns nothing, so there is no duplication.
+  Setting is `[Gameplay] KeepChipsOnDeath`. In the live run it logged:
+  `death penalty disabled (call at +0x83CC1C to +0x81A460 replaced with nop)`.
+  The reverse-engineering is written up in `docs/NIER-INTERNALS.md`.
+  **This is the only code patch in the mod** — everything else reads, hooks, or
+  calls the game's own functions, so treat it as the first place to look if a
+  game update breaks something.
 - **PowerShell tools must stay pure ASCII.** An em dash in a string broke the
   parser and the control panel failed to start; both tools are ASCII-only now.
 - The user prefers the agent to launch the game for them once a build is ready,
