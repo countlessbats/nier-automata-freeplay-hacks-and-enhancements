@@ -7,7 +7,8 @@ NieR:Automata (build 7020666).
 
 - True DualSense waveform haptics over the controller's USB audio endpoint.
 - Distinct pulses for menu movement, footsteps, outgoing hits, and damage taken.
-- Alternating left/right footstep texture paced by movement-stick intensity.
+- Alternating left/right footstep texture driven by real player displacement,
+  with distinct walking and sprinting cadence.
 - Hitstop whenever a health-bearing non-player entity loses health: 8% game speed for 1000 ms by
   default.
 - Plain-text configuration in `NierHaptics.ini`.

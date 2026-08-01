@@ -27,7 +27,7 @@ FARPROC real_export(const char* name) {
 
 DWORD WINAPI mod_thread(void*) {
     const Config config = load_config();
-    log_line("NieR Haptics + Hitstop 1.0.2 starting");
+    log_line("NieR Haptics + Hitstop 1.0.3 starting");
     const bool clock_hooked = config.hitstop_enabled && install_timescale_hook();
     Haptics haptics;
     if (config.haptics_enabled) haptics.start();

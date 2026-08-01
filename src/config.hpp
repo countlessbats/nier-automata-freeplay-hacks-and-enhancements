@@ -12,7 +12,7 @@ struct Config {
     bool menu_enabled{true};
     float menu_strength{0.22f};
     bool footsteps_enabled{true};
-    float footstep_strength{0.18f};
+    float footstep_strength{0.08f};
     float footstep_distance{1.35f};
     bool enemy_hit_enabled{true};
     float enemy_hit_strength{0.62f};

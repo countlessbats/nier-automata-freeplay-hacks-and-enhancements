@@ -1,5 +1,6 @@
 #include "game_events.hpp"
 #include "config.hpp"
+#include "damage_hook.hpp"
 #include "timescale.hpp"
 
 #include <Windows.h>
@@ -86,6 +87,7 @@ GameEvents::GameEvents(const Config& config, Haptics& haptics)
 void GameEvents::run(std::atomic_bool& stop_requested) {
     uintptr_t list_global{};
     ULONGLONG last_signature_scan{};
+    bool damage_hook_attempted{};
 
     const auto xinput = load_xinput();
     if (xinput) log_line("Menu haptics: XInput state reader active");
@@ -95,12 +97,15 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     uint32_t player_health{};
     bool have_player_health{};
     bool logged_player{};
+    Vec3 previous_position{};
+    bool have_position{};
+    ULONGLONG previous_position_time{};
+    float step_progress{};
     bool left_foot{};
     bool menu_likely{};
     WORD previous_buttons{};
     int previous_stick_direction{};
     ULONGLONG last_menu_pulse{};
-    ULONGLONG last_footstep{};
 
     while (!stop_requested.load()) {
         const ULONGLONG loop_time = GetTickCount64();
@@ -112,9 +117,13 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                          static_cast<unsigned long long>(list_global -
                          reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
         }
+        if (list_global && !damage_hook_attempted) {
+            damage_hook_attempted = true;
+            install_enemy_damage_hook();
+        }
         Vec3 player_position{};
         bool have_player{};
-        bool enemy_damaged{};
+        bool enemy_damaged = consume_enemy_damage_event();
         bool player_damaged{};
         XINPUT_STATE input_state{};
         bool controller_connected{};
@@ -153,7 +162,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                                 player_damaged = true;
                                 if (config_.haptics_enabled && config_.player_hit_enabled)
                                     haptics_.play(HapticEffect::PlayerHit, config_.player_hit_strength);
-                                log_line("Event: player damaged (%u -> %u)", player_health, health);
+                                log_line("Event: player damaged (%u -> %u); PlayerHit waveform queued",
+                                         player_health, health);
                             }
                             player_health = health;
                             have_player_health = true;
@@ -175,7 +185,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             log_line("Event: hit connected; applying hitstop");
             if (config_.hitstop_enabled)
                 begin_hitstop(config_.hitstop_speed, config_.hitstop_duration_ms);
-            if (enemy_damaged && config_.haptics_enabled && config_.enemy_hit_enabled)
+            if (enemy_damaged && !player_damaged && config_.haptics_enabled &&
+                config_.enemy_hit_enabled)
                 haptics_.play(HapticEffect::EnemyHit, config_.enemy_hit_strength);
         }
 
@@ -190,25 +201,39 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 menu_likely = false;
             }
 
-            const float lx = static_cast<float>(input_state.Gamepad.sThumbLX);
-            const float ly = static_cast<float>(input_state.Gamepad.sThumbLY);
-            const float stick_magnitude = controller_connected ? std::hypot(lx, ly) : 0.0f;
-            if (!menu_likely && stick_magnitude > 7000.0f &&
-                config_.haptics_enabled && config_.footsteps_enabled) {
-                const float movement = std::clamp((stick_magnitude - 7000.0f) / 39000.0f, 0.0f, 1.0f);
-                const ULONGLONG cadence = static_cast<ULONGLONG>(420.0f - movement * 190.0f);
-                if (!last_footstep || now - last_footstep >= cadence) {
+            if (have_position && previous_position_time && now - previous_position_time >= 25) {
+                const float dx = player_position.x - previous_position.x;
+                const float dy = player_position.y - previous_position.y;
+                const float dz = player_position.z - previous_position.z;
+                const float horizontal = std::hypot(dx, dz);
+                const float elapsed = static_cast<float>(now - previous_position_time) / 1000.0f;
+                const float speed = horizontal / elapsed;
+                if (!menu_likely && horizontal < 1.5f && std::abs(dy) < 0.12f &&
+                    speed >= 0.7f && speed <= 30.0f)
+                    step_progress += horizontal;
+                else if (horizontal >= 1.5f || std::abs(dy) >= 0.12f || speed < 0.7f)
+                    step_progress = 0.0f;
+                const float stride = config_.footstep_distance * (speed >= 7.0f ? 1.35f : 0.90f);
+                if (step_progress >= stride && config_.haptics_enabled &&
+                    config_.footsteps_enabled) {
+                    step_progress = std::fmod(step_progress, stride);
                     left_foot = !left_foot;
                     haptics_.play(left_foot ? HapticEffect::FootLeft : HapticEffect::FootRight,
                                   config_.footstep_strength);
-                    last_footstep = now;
                 }
-            } else if (stick_magnitude <= 7000.0f) {
-                last_footstep = 0;
+                previous_position = player_position;
+                previous_position_time = now;
+            }
+            if (!have_position) {
+                previous_position = player_position;
+                previous_position_time = now;
+                have_position = true;
             }
         } else {
             menu_likely = true;
-            last_footstep = 0;
+            step_progress = 0.0f;
+            have_position = false;
+            previous_position_time = 0;
         }
 
         if (controller_connected) {
