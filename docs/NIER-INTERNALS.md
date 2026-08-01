@@ -172,7 +172,29 @@ Footstep and hit names recovered by logging a live session:
 | `pl0000_step_walk_L_pl`, `..._R_pl`, `pl0000_step_run_L_pl`, `..._R_pl` | 2B, player-controlled |
 | `pl0200_step_walk_L`, `pl0200_step_run_L`, … | 9S as companion |
 | `em0000_step_L`, `em0000_step_R`, `em0000_step_move` | machines |
-| `core_small_sword_hit`, `core_shot_hit`, `core_shot_bullet_hit` | the player's attack connecting |
+| `core_small_sword_hit`, `core_shot_hit`, `core_shot_bullet_hit` | attacks connecting |
+
+### Melee hit-confirms are per weapon class
+
+There is no single "you hit something" sound. Each of the four weapon classes
+has its own, so matching one name covers only one class:
+
+| Class | Names |
+| --- | --- |
+| Small sword | `core_small_sword_hit`, `core_small_sword_hit_em7000` |
+| Large sword | `core_big_sword_hit`, `core_blade_hit` |
+| Spear | `core_spear_hit`, `core_pl_AS_black_spear_hit(_em)` |
+| Combat bracer | `core_nackle_hit(_animal)`, `core_bare_hand_hit(_animal)` |
+
+Plus `core_pl_blow_hit`, `core_pl_PS_critical_hit`, `core_pl_AS_wire_hit` and
+`core_sword_hit_animal`.
+
+Names carrying "hit" that are **not** the player's melee: anything with `shot`
+or `bullet` (pod and enemy rounds), `gun`, `pod` (`core_pl_AS_pod_throw_hit`),
+`hak`/`hack` (the hacking minigame), `emil` (a merchant NPC's own attacks) and
+`drug`.
+
+`core_pl_` is a reliable player marker for the ones that carry it.
 
 ### The `_pl` suffix is the player marker
 

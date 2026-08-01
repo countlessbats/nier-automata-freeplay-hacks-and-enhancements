@@ -111,11 +111,25 @@ SoundKind classify(const std::string& lowered) {
 
     const bool menu_namespace = lowered.rfind("core_", 0) == 0 || lowered.rfind("se_", 0) == 0;
     if (!menu_namespace) return SoundKind::Ignored;
-    // Only the melee hit-confirm drives hitstop. `core_shot_hit` and
-    // `core_shot_bullet_hit` are pod round impacts: they fire for the
-    // companion's pod as readily as the player's, and an impact is not
-    // something that should stop time or buzz the controller.
-    if (contains(lowered, "sword") && contains(lowered, "hit")) return SoundKind::MeleeHit;
+    // Melee hit-confirms. The game has one per weapon class rather than a
+    // single shared sound, which is why matching only "sword" dropped unarmed
+    // attacks entirely. Across the four classes:
+    //   small sword   core_small_sword_hit, core_small_sword_hit_em7000
+    //   large sword   core_big_sword_hit, core_blade_hit
+    //   spear         core_spear_hit, core_pl_AS_black_spear_hit
+    //   combat bracer core_nackle_hit, core_bare_hand_hit (+ _animal variants)
+    //
+    // Everything else carrying "hit" is deliberately rejected: pod and gun
+    // rounds are impacts rather than actions the player took, hacking hits
+    // belong to the minigame, and Emil is not the player.
+    if (contains(lowered, "hit")) {
+        static const char* const kNotMelee[] = {
+            "shot", "bullet", "gun", "pod", "hak", "hack", "emil", "drug"};
+        bool melee = true;
+        for (const char* reject : kNotMelee)
+            if (contains(lowered, reject)) { melee = false; break; }
+        if (melee) return SoundKind::MeleeHit;
+    }
     if (contains(lowered, "cancel")) return SoundKind::MenuCancel;
     if (contains(lowered, "error") || contains(lowered, "alart")) return SoundKind::MenuCancel;
     // "disicion" is the game's own spelling of the decision/confirm sound.
@@ -133,6 +147,11 @@ SoundKind classify(const std::string& lowered) {
 // Only sounds carrying the player's own model prefix count. Weapon sounds such
 // as `wpf000_combo_swing_01` were tried and are not usable: the companion plays
 // them too, so they let 9S's swings through.
+// `core_pl_` names the player outright, so those hits need no corroboration.
+bool is_player_namespaced(const std::string& lowered) {
+    return lowered.rfind("core_pl_", 0) == 0;
+}
+
 bool is_attack_sound(const std::string& lowered, const std::string& player_prefix) {
     if (player_prefix.empty()) return false;
     if (lowered.rfind(player_prefix + "_", 0) != 0) return false;
@@ -308,7 +327,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             case SoundKind::MeleeHit: {
                 const ULONGLONG now = GetTickCount64();
                 const ULONGLONG age = last_player_attack ? now - last_player_attack : ~0ULL;
-                if (age > config_.melee_attribution_window_ms) {
+                if (!is_player_namespaced(lowered) &&
+                    age > config_.melee_attribution_window_ms) {
                     if (++foreign_melee_hits % 10 == 1)
                         log_line("Event: melee hit ignored; no player swing in the last %llu ms",
                                  static_cast<unsigned long long>(
