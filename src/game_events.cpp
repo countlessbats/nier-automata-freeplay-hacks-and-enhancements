@@ -1,7 +1,6 @@
 #include "game_events.hpp"
 #include "config.hpp"
 #include "sound_hook.hpp"
-#include "timescale.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -12,6 +11,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace {
 struct Vec3 { float x{}, y{}, z{}; };
@@ -23,10 +23,24 @@ struct Vec3 { float x{}, y{}, z{}; };
 //   behavior + 0xCA0  CharacterController, whose +0x794 is the movement speed
 //     the game itself computes, so 0xCA0 + 0x794 = 0x1434.
 constexpr uintptr_t kControllerSpeed = 0x1434;
+// Pl0000 is 0x17920 bytes. The probe walks this much of it looking for the
+// air-jump counter; it only ever reads.
+constexpr size_t kPlayerBlockBytes = 0x17920;
 
 template <typename T> bool safe_read(uintptr_t address, T& value) {
     __try {
         value = *reinterpret_cast<const T*>(address);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// Kept separate because SEH cannot be used in a function that needs C++ object
+// unwinding, which the event loop does.
+bool copy_block(uintptr_t address, void* destination, size_t bytes) {
+    __try {
+        memcpy(destination, reinterpret_cast<const void*>(address), bytes);
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
@@ -147,6 +161,11 @@ SoundKind classify(const std::string& lowered) {
 // Only sounds carrying the player's own model prefix count. Weapon sounds such
 // as `wpf000_combo_swing_01` were tried and are not usable: the companion plays
 // them too, so they let 9S's swings through.
+bool is_jump_sound(const std::string& lowered, const std::string& player_prefix) {
+    if (player_prefix.empty() || lowered.rfind(player_prefix + "_", 0) != 0) return false;
+    return contains(lowered, "jump");
+}
+
 // `core_pl_` names the player outright, so those hits need no corroboration.
 bool is_player_namespaced(const std::string& lowered) {
     return lowered.rfind("core_pl_", 0) == 0;
@@ -203,7 +222,11 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     bool left_foot{};
     ULONGLONG last_footstep{};
     ULONGLONG last_player_attack{};
-    unsigned suppressed_hitstops{};
+    ULONGLONG last_jump_sound{};
+    uintptr_t player_behavior{};
+    std::vector<uint32_t> grounded_snapshot;
+    std::vector<uint32_t> live_snapshot;
+    unsigned jump_probe_reports{};
     unsigned foreign_melee_hits{};
 
     while (!stop_requested.load()) {
@@ -221,7 +244,6 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         if (list_global && !sound_hook_attempted) {
             sound_hook_attempted = true;
             sound_hook_active = install_sound_hook();
-            if (config_.hitstop_enabled) install_timescale_hook();
         }
         Vec3 player_position{};
         bool have_player{};
@@ -251,6 +273,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                         if (valid_health) ++others;
                         continue;
                     }
+                    player_behavior = behavior;
                     if (safe_read(behavior + 0x50, player_position) &&
                         std::isfinite(player_position.x) && std::isfinite(player_position.y) &&
                         std::isfinite(player_position.z)) have_player = true;
@@ -282,6 +305,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             const std::string lowered = lowercase(event.name);
             const SoundKind kind = classify(lowered);
             if (is_attack_sound(lowered, player_prefix)) last_player_attack = GetTickCount64();
+            if (config_.probe_jump_fields && is_jump_sound(lowered, player_prefix))
+                last_jump_sound = GetTickCount64();
 
             // Any `_pl` sound identifies the character the player is currently
             // controlling, so the prefix follows story sections that swap it.
@@ -337,12 +362,6 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 }
                 if (config_.enemy_hit_enabled)
                     haptics_.play(HapticEffect::EnemyHit, config_.enemy_hit_strength);
-                if (!config_.hitstop_enabled) break;
-                if (begin_hitstop(config_.hitstop_speed, config_.hitstop_duration_ms,
-                                  config_.hitstop_min_interval_ms))
-                    log_line("Event: melee hit (%s); hitstop applied", event.name);
-                else if (++suppressed_hitstops % 20 == 1)
-                    log_line("Event: melee hit (%s); hitstop still cooling down", event.name);
                 break;
             }
             case SoundKind::MenuTick:
@@ -361,7 +380,43 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 break;
             }
         }
+        // Read-only search for the air-jump counter. While the player has not
+        // jumped recently the block is kept as a grounded baseline; on a jump
+        // sound the same block is compared against it and any small integer
+        // that stepped up by one is reported. The counter shows itself by
+        // going 0 -> 1 on the first jump and 1 -> 2 on the second.
+        if (config_.probe_jump_fields && player_behavior && jump_probe_reports < 12) {
+            const ULONGLONG now = GetTickCount64();
+            const size_t words = kPlayerBlockBytes / sizeof(uint32_t);
+            if (live_snapshot.size() != words) live_snapshot.resize(words);
+            const bool readable_block = readable(player_behavior, kPlayerBlockBytes) &&
+                copy_block(player_behavior, live_snapshot.data(), kPlayerBlockBytes);
+            if (readable_block) {
+                if (last_jump_sound && now - last_jump_sound < 120 &&
+                    grounded_snapshot.size() == words) {
+                    std::string found;
+                    unsigned hits{};
+                    for (size_t i = 0; i < words && hits < 12; ++i) {
+                        const uint32_t before = grounded_snapshot[i], after = live_snapshot[i];
+                        if (after != before + 1 || after > 4) continue;
+                        char entry[48]{};
+                        _snprintf_s(entry, sizeof(entry), _TRUNCATE, " +0x%llX:%u->%u",
+                                    static_cast<unsigned long long>(i * sizeof(uint32_t)),
+                                    before, after);
+                        found += entry;
+                        ++hits;
+                    }
+                    if (hits) {
+                        ++jump_probe_reports;
+                        log_line("Jump probe: fields that stepped up on this jump:%s",
+                                 found.c_str());
+                    }
+                    last_jump_sound = 0;
+                } else if (!last_jump_sound || now - last_jump_sound > 900) {
+                    grounded_snapshot = live_snapshot;
+                }
+            }
+        }
         Sleep(4);
     }
-    reset_timescale();
 }

@@ -245,7 +245,7 @@ A debug overlay at `0x71A3BD` prints a request struct, giving its layout:
 | `+0x38` | `reqMove` |
 | `+0x3C` | `reqMoveStp` |
 
-## Groundwork for a multi-jump mod
+## Multi-jump: what is known and what is not
 
 The pieces above are the start of an infinite-jump mod; this is a plan, not a
 finished feature.
@@ -258,23 +258,31 @@ What is already established:
 - `0x71A3BD` is a virtual function with no direct callers, so the request struct
   must be reached through the object's vtable rather than a call site.
 
-The remaining work, in order:
+Additionally established:
 
-1. Find the owner of the request struct. Locate `0x71A3BD` in a vtable by
-   scanning `.rdata` for its address, then identify the class from the adjacent
-   RTTI, which gives the offset of the struct inside `Pl0000`.
-2. Find the air-jump gate. With the struct offset known, look for reads of
-   `reqJump` near a comparison against a small constant, or a ground/air flag
-   test near the `JumpStart_*` transitions. NieR already allows one air jump, so
-   a counter compared against 1 is the likely shape.
-3. Neutralize the gate. Preferred order: write the counter back to zero each
-   frame from the polling thread (fully reversible, no code patching); if that
-   is insufficient, patch the comparison constant; use a mid-function hook only
-   as a last resort.
+- The animation request block lives at **`Pl0000 + 0x106F0`**:
+  `+0x106F0` request-pending flag, `+0x106F4` the movement state from the enum
+  above, `+0x106F8` a sub-state, `+0x106FC` an animation id, `+0x10700` a float,
+  `+0x10704`, `+0x10708`. Jump starts write `0xE` (`JumpStart_Run`) or `0xF`
+  (`JumpStart_Dash`) to `+0x106F4` and then call `0x47EE80(Pl0000*)`, which
+  appears to commit the request.
+- Jump-start sites: `0x4AF89A`, `0x4B3B4C`, `0x4C8E38`, `0x4D11E2`.
+- The game plays `pl0000_jump_first` and `pl0200_jump_second`, so the engine
+  distinguishes the first jump from the second and a counter exists.
 
-Reading and resetting a counter from the existing polling loop is strongly
-preferred over patching code — it is reversible, survives a game update far more
-gracefully, and cannot corrupt instruction boundaries.
+**The air-jump counter has not been found statically.** Searches that came up
+empty: the debug overlay at `0x71A3BD` is unreferenced and not in any vtable, so
+its request struct cannot be located that way; no field in the player region is
+both incremented and compared against a small limit; and the fields written
+during a jump are animation parameters rather than a count.
+
+Because of that, 1.0.11 ships a **read-only probe** instead of a guess. It keeps
+a grounded baseline of the whole `Pl0000` block, and when a player jump sound
+fires it reports every dword that stepped up by exactly one and stayed at four
+or less. The counter identifies itself by reading 0 -> 1 on the first jump and
+1 -> 2 on the second. Once the offset is known, the implementation is to hold it
+at zero from the polling loop — a write to one field of one entity whose class
+is known, which is a far narrower risk than the 1.0.7 crash.
 
 ## Timing and hitstop
 

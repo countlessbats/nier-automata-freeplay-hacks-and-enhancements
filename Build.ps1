@@ -14,7 +14,7 @@ $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
 $sources = @(
-    'src\dllmain.cpp', 'src\config.cpp', 'src\timescale.cpp',
+    'src\dllmain.cpp', 'src\config.cpp',
     'src\haptics.cpp', 'src\sound_hook.cpp',
     'src\game_events.cpp'
 ) | ForEach-Object { '"' + (Join-Path $root $_) + '"' }

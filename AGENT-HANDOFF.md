@@ -6,13 +6,24 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.10**, commit `a1357f0`.
+- Installed build: **1.0.11**, commit pending.
 - Installed DLL SHA-256:
-  `701D571A5D069B345A8F521A958BC53E1921C280F0B48BB75E545D96C4218B97`.
+  `8137C4A467A45966F4B72F0D6C8F9CD928654AFEE8D325643BE3601FF4A07602`.
 - Git has **no configured remote**, so nothing has been pushed. Every commit is
   local only. This must be reported whenever work is called complete.
-- **1.0.10 has been built, smoke-loaded, installed and hash-verified.** The next
-  build shown to the user must be **1.0.11** with a matching commit.
+- **1.0.11 has been built, smoke-loaded, installed, hash-verified and launched
+  in the real game.** The next build must be **1.0.12** with a matching commit.
+- Cosmetic leftover: the log banner still reads "NieR Haptics + Hitstop" even
+  though hitstop is gone. Rename it on the next build.
+
+## Hitstop is removed — do not revive it
+
+The user asked for it to be dropped after four failed approaches. `timescale.cpp`
+is deleted and every hitstop setting is out of the INI. The history is in
+`docs/NIER-INTERNALS.md` so it is not re-attempted from scratch: process-clock
+scaling cannot work because the game paces frames off the clocks it simulates
+from, the engine's `AccelTime` is player-scoped, and writing enemy animation
+rates crashed the game.
 
 ## 1.0.7 crashed the game — do not reintroduce what caused it
 

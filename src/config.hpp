@@ -4,10 +4,6 @@
 
 struct Config {
     bool haptics_enabled{true};
-    bool hitstop_enabled{true};
-    float hitstop_speed{0.35f};
-    unsigned hitstop_duration_ms{130};
-    unsigned hitstop_min_interval_ms{240};
     // A shared hit-confirm sound only counts as the player's if one of the
     // player's own swings happened this recently.
     unsigned melee_attribution_window_ms{700};
@@ -30,6 +26,8 @@ struct Config {
     // Writes every distinct sound-event name the game posts to the log, so new
     // events can be mapped without a timed in-game test.
     bool log_sound_names{true};
+    // Read-only probe that finds the air-jump counter from real play.
+    bool probe_jump_fields{true};
 };
 
 std::wstring module_directory();
