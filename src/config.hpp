@@ -16,6 +16,9 @@ struct Config {
     // walk constantly, so only sounds belonging to the player's own character
     // are used; the remaining settings guard against layered duplicates.
     bool footstep_player_only{true};
+    // Footsteps during a fight add clutter under the hit and damage effects.
+    bool footsteps_in_combat{false};
+    unsigned combat_window_ms{4000};
     bool footstep_require_moving{true};
     unsigned footstep_min_interval_ms{70};
     bool enemy_hit_enabled{true};
@@ -32,6 +35,11 @@ struct Config {
     unsigned multi_jump_hold_value{0};
     unsigned multi_jump_sane_max{8};
 
+    // Keep plug-in chips through death. Disables the game's death-penalty
+    // routine, so equipped chips are never moved onto the corpse; the body
+    // still spawns and recovering it returns nothing, so nothing duplicates.
+    bool keep_chips_on_death{true};
+
     // Writes every distinct sound-event name the game posts to the log, so new
     // events can be mapped without a timed in-game test.
     bool log_sound_names{true};
@@ -40,5 +48,7 @@ struct Config {
 };
 
 std::wstring module_directory();
+std::wstring config_path();
+unsigned long long config_stamp();
 Config load_config();
 void log_line(const char* format, ...);

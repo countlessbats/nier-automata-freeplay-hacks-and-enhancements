@@ -401,6 +401,74 @@ behavior block before and after that moment and diff it. Whatever field the
 engine sets for its own hitstop will show up as a change correlated with hits
 and nothing else, which finds the mechanism without guessing at offsets.
 
+## Plug-in chips, corpses and the death penalty
+
+Recovered for the chip-keeper feature. All addresses are RVAs in build 7020666.
+
+### Chip inventory
+
+The save-data block is reached through a **pointer** global at `0xF5D0C0`
+(deref once; the code below calls it `save`). Chip inventory:
+
+- array base `save + 0x1F50`, **300 entries**, stride `0x30`
+- active chip-set index (0..2) at `save + 0x1F48`
+
+Chip entry fields (offsets within an entry):
+
+| Offset | Field |
+| --- | --- |
+| `+0x04` | chip id; `-1` marks an empty slot |
+| `+0x14` / `+0x18` / `+0x1C` | slot position in chip set A / B / C; `-1` = unequipped |
+| `+0x20` / `+0x24` / `+0x28` | backup of the three set slots, written at death, restored on body recovery |
+| `+0x2C` | status: `0` = in the player's possession, nonzero = lying on the corpse |
+
+Chip ids `0xD1A..0xD1E` are the protected family the penalty never takes (the
+OS chip and friends). A chip catalog with stride `0x30` hangs off the global at
+`0x13C94E0` (`+8` is the first id); the penalty routine looks up a category
+there and a jump table exempts certain categories.
+
+### The corpse record
+
+The player's own corpse is **not** an inventory: it is a `0x120`-byte record at
+`0x1494790` (name, map string at `+0x10`, appearance/loadout words, position at
+`+0xF0`) plus a count/valid dword at `0x14948B0` and an exists byte at
+`0x1494780`. It holds **no chip data** — "chips on the corpse" is entirely the
+per-chip `+0x2C` status flag above. The world entity is spawned by name
+(`"Corpse"`, entity type id `0x21080`/`0x21081`) from the chunk at `0x7C30D5`;
+`BehaviorSetItemCorpse` is its behavior class.
+
+### The death-penalty routine — `0x81A460`
+
+Called from **exactly one place**: `0x83CC1C`, inside the game-over/continue
+state machine at `0x83C840` (which also builds the corpse record via
+`0x7C3AA0` and commits it). The routine:
+
+1. wipes for good every chip entry whose status is nonzero — chips still on a
+   previous corpse are permanently destroyed here (the double-death loss);
+2. copies each entry's set slots `+0x14/+0x18/+0x1C` into the backups
+   `+0x20/+0x24/+0x28`, then for every chip equipped in the **active** set —
+   skipping ids `0xD1A..0xD1E` and jump-table-exempt categories — sets status
+   `= 1` and clears all three set slots;
+3. calls `0x814A40(save_ptr, active_set)` to recompute the set.
+
+Body recovery (writer at `0x80A525`, part of the `UICorpseMenu` flow) is the
+inverse: status back to `0`, set slots restored from the backups. The
+second-death cleaner at `0x7C3EA0` (callers `0x7D9350`, `0x8359E0`) deletes
+flagged chips and memsets the corpse record.
+
+### The chip-keeper patch
+
+`src/chip_keeper.cpp` finds the unique 36-byte call-site signature at
+`0x83CC15` (`lea rcx,[rip+..]; call ..; xor edx,edx; lea r8d,[rdx+0x60];
+lea rcx,[rip+..]; call ..; mov [rip+..],ebx`), resolves the `call` target,
+verifies the penalty routine's 17-byte prologue byte-for-byte, and replaces
+the 5-byte `call` with one 5-byte NOP. Chips are then never flagged or
+unequipped; the corpse still spawns for achievements and the repair/ally
+options but returns nothing, so recovery cannot duplicate anything. Skipping
+the routine also skips its phase-1 destruction of previously flagged chips,
+which only matters for a save that already had chips on a corpse when the mod
+was first enabled — those stay flagged until recovered normally.
+
 ## Miscellaneous leads
 
 - `is_loading` global, via `48 83 ec 28 e8 ? ? ? ? c7 05 ? ? ? ? 01 00 00 00`,

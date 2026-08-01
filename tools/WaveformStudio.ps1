@@ -1,4 +1,4 @@
-# WaveformStudio.ps1 — sliders for DualSense haptic waveforms.
+# WaveformStudio.ps1 - sliders for DualSense haptic waveforms.
 #
 # Drives tools\waveform_player.exe, which plays on the controller's actuators.
 # The "code" box holds an NHW1 string: paste one in to load it, or copy one out

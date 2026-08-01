@@ -1,4 +1,5 @@
 #include "game_events.hpp"
+#include "chip_keeper.hpp"
 #include "config.hpp"
 #include "sound_hook.hpp"
 
@@ -170,6 +171,16 @@ SoundKind classify(const std::string& lowered) {
 // Only sounds carrying the player's own model prefix count. Weapon sounds such
 // as `wpf000_combo_swing_01` were tried and are not usable: the companion plays
 // them too, so they let 9S's swings through.
+// "In combat" from events the game actually posts. The BGM battle events are
+// authoritative when they appear; otherwise recent fighting activity stands in,
+// which avoids depending on names that have never been observed live.
+bool is_combat_start(const std::string& l) {
+    return l == "bgm_battle_start" || l == "bgm_battle" || contains(l, "target_lockon");
+}
+bool is_combat_end(const std::string& l) {
+    return l == "bgm_battle_end" || l == "bgm_battle_end_timer" || contains(l, "target_lockoff");
+}
+
 bool is_jump_sound(const std::string& lowered, const std::string& player_prefix) {
     if (player_prefix.empty() || lowered.rfind(player_prefix + "_", 0) != 0) return false;
     return contains(lowered, "jump");
@@ -232,6 +243,9 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     ULONGLONG last_footstep{};
     ULONGLONG last_player_attack{};
     ULONGLONG last_jump_sound{};
+    ULONGLONG combat_activity{};
+    bool bgm_combat{};
+    unsigned long long config_seen = config_stamp();
     uintptr_t player_behavior{};
     std::vector<uint32_t> grounded_snapshot;
     std::vector<uint32_t> live_snapshot;
@@ -241,6 +255,13 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
 
     while (!stop_requested.load()) {
         const ULONGLONG loop_time = GetTickCount64();
+        // Pick up edits to the INI while the game runs, so the control panel
+        // can change settings without a restart.
+        if (const unsigned long long stamp = config_stamp(); stamp && stamp != config_seen) {
+            config_seen = stamp;
+            config_ = load_config();
+            log_line("Config: reloaded settings from NierHaptics.ini");
+        }
         if (!list_global && loop_time - last_signature_scan >= 500) {
             last_signature_scan = loop_time;
             list_global = find_entity_list_global();
@@ -254,6 +275,9 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         if (list_global && !sound_hook_attempted) {
             sound_hook_attempted = true;
             sound_hook_active = install_sound_hook();
+            // Same timing constraint as the sound hook: the code signature
+            // only exists once the executable has decrypted itself.
+            if (config_.keep_chips_on_death) install_chip_keeper();
         }
         Vec3 player_position{};
         bool have_player{};
@@ -309,6 +333,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                     if (have_player_health && health < player_health) {
                         if (config_.haptics_enabled && config_.player_hit_enabled)
                             haptics_.play(HapticEffect::PlayerHit, config_.player_hit_strength);
+                        combat_activity = GetTickCount64();
                         log_line("Event: player damaged (%u -> %u); PlayerHit waveform queued",
                                  player_health, health);
                     }
@@ -335,6 +360,10 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             if (is_attack_sound(lowered, player_prefix)) last_player_attack = GetTickCount64();
             if (config_.probe_jump_fields && is_jump_sound(lowered, player_prefix))
                 last_jump_sound = GetTickCount64();
+            if (is_combat_start(lowered)) { bgm_combat = true; combat_activity = GetTickCount64(); }
+            else if (is_combat_end(lowered)) bgm_combat = false;
+            if (kind == SoundKind::MeleeHit || is_attack_sound(lowered, player_prefix))
+                combat_activity = GetTickCount64();
 
             // Any `_pl` sound identifies the character the player is currently
             // controlling, so the prefix follows story sections that swap it.
@@ -363,6 +392,10 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 // steps should reach the controller.
                 if (config_.footstep_player_only && !mine) break;
                 if (config_.footstep_require_moving && !have_player) break;
+                if (!config_.footsteps_in_combat) {
+                    const ULONGLONG since = GetTickCount64() - combat_activity;
+                    if (bgm_combat || (combat_activity && since < config_.combat_window_ms)) break;
+                }
                 const ULONGLONG now = GetTickCount64();
                 if (now - last_footstep < config_.footstep_min_interval_ms) break;
                 last_footstep = now;

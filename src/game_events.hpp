@@ -10,7 +10,7 @@ public:
     void run(std::atomic_bool& stop_requested);
 
 private:
-    const Config& config_;
+    Config config_;
     Haptics& haptics_;
 };
 

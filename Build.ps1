@@ -16,7 +16,7 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $sources = @(
     'src\dllmain.cpp', 'src\config.cpp',
     'src\haptics.cpp', 'src\sound_hook.cpp',
-    'src\game_events.cpp'
+    'src\game_events.cpp', 'src\chip_keeper.cpp'
 ) | ForEach-Object { '"' + (Join-Path $root $_) + '"' }
 $output = Join-Path $dist 'dinput8.dll'
 $def = Join-Path $root 'src\dinput8.def'

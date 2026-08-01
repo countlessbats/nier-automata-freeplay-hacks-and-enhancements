@@ -48,9 +48,21 @@ std::wstring module_directory() {
     return slash == std::wstring::npos ? L"." : result.substr(0, slash);
 }
 
+std::wstring config_path() { return module_directory() + L"\\NierHaptics.ini"; }
+
+// Last-write time of the INI, so the mod can pick up edits while running.
+unsigned long long config_stamp() {
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExW(config_path().c_str(), GetFileExInfoStandard, &data)) return 0;
+    ULARGE_INTEGER value{};
+    value.LowPart = data.ftLastWriteTime.dwLowDateTime;
+    value.HighPart = data.ftLastWriteTime.dwHighDateTime;
+    return value.QuadPart;
+}
+
 Config load_config() {
     Config c;
-    const auto path = module_directory() + L"\\NierHaptics.ini";
+    const auto path = config_path();
     c.haptics_enabled = read_bool(L"General", L"HapticsEnabled", c.haptics_enabled, path);
     const int window = static_cast<int>(GetPrivateProfileIntW(
         L"Haptics", L"MeleeAttributionWindowMs", c.melee_attribution_window_ms, path.c_str()));
@@ -60,6 +72,10 @@ Config load_config() {
     c.footsteps_enabled = read_bool(L"Haptics", L"FootstepsEnabled", c.footsteps_enabled, path);
     c.footstep_strength = std::clamp(read_float(L"Haptics", L"FootstepStrength", c.footstep_strength, path), 0.0f, 1.0f);
     c.footstep_player_only = read_bool(L"Haptics", L"FootstepPlayerOnly", c.footstep_player_only, path);
+    c.footsteps_in_combat = read_bool(L"Haptics", L"FootstepsInCombat", c.footsteps_in_combat, path);
+    const int combat_window = static_cast<int>(GetPrivateProfileIntW(
+        L"Haptics", L"CombatWindowMs", c.combat_window_ms, path.c_str()));
+    c.combat_window_ms = static_cast<unsigned>(std::clamp(combat_window, 250, 30000));
     c.footstep_require_moving = read_bool(L"Haptics", L"FootstepRequireMoving", c.footstep_require_moving, path);
     const int footstep_gap = static_cast<int>(GetPrivateProfileIntW(
         L"Haptics", L"FootstepMinIntervalMs", c.footstep_min_interval_ms, path.c_str()));
@@ -68,6 +84,7 @@ Config load_config() {
     c.multi_jump_offset = read_number(L"Gameplay", L"MultiJumpCounterOffset", c.multi_jump_offset, path);
     c.multi_jump_hold_value = read_number(L"Gameplay", L"MultiJumpHoldValue", c.multi_jump_hold_value, path);
     c.multi_jump_sane_max = read_number(L"Gameplay", L"MultiJumpSaneMax", c.multi_jump_sane_max, path);
+    c.keep_chips_on_death = read_bool(L"Gameplay", L"KeepChipsOnDeath", c.keep_chips_on_death, path);
     c.log_sound_names = read_bool(L"Diagnostics", L"LogSoundNames", c.log_sound_names, path);
     c.probe_jump_fields = read_bool(L"Diagnostics", L"ProbeJumpFields", c.probe_jump_fields, path);
     c.enemy_hit_enabled = read_bool(L"Haptics", L"EnemyHitEnabled", c.enemy_hit_enabled, path);
