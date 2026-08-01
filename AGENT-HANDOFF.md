@@ -6,36 +6,25 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.15**, commit `69b9371`.
+- Installed build: **1.0.16**, commit pending.
 - Installed DLL SHA-256:
-  `AF9AE48BF15492D29560657704867C2C021B9B82D2AEC027CB8A26E6529E5F67`.
+  `EA39618DA55BFAF4A49B9A939D41B4A8CDA0AB2320D919712C3AEF006DDBD8F3`.
 - Git has **no configured remote**, so nothing has been pushed. Every commit is
   local only. This must be reported whenever work is called complete.
-- **1.0.15 is installed and verified stable.** The next build must be **1.0.16**
-  with a matching commit.
+- **1.0.16 is installed, launched and verified.** The next build must be
+  **1.0.17** with a matching commit.
 
-## 1.0.14's in-game overlay crashed the game — it is disabled
+## The in-game overlay works and is on by default
 
-`src/overlay.cpp` draws an ImGui panel by swapping the `Present` pointer in the
-DXGI swap-chain vtable. It hooked successfully and the game then died on the
-first rendered frame with `0xc00000fd` (stack overflow), before the panel
-finished initialising. The failure is reproducible and was confirmed in the
-Windows Application log.
+`src/overlay.cpp` draws an ImGui panel on the game's own renderer, toggled with
+F10 by default. It was verified by launching the game, sending a synthetic key
+press and capturing the window: the panel renders over the game with every
+control working. `docs/NIER-INTERNALS.md` records the four failures it took to
+get there, including the two that crashed the game, so none of them get
+repeated.
 
-1.0.15 leaves the code in place but gates it behind `[Overlay] Enabled`, which
-**defaults to 0**. Do not turn it on for the user without saying so first.
-
-A re-entrancy guard has since been added to `present_hook`, because a Present
-hook must never run inside itself and that is the most likely shape of a stack
-overflow. **That is a hypothesis, not a diagnosis** — the crash has not been
-re-tested. Before enabling it again, attach a debugger or add logging on entry
-to `present_hook` to establish whether the hook is re-entering, whether the
-game's swap chain is `IDXGISwapChain1` using `Present1` (vtable index 22, which
-this code does not hook), and whether the game presents from more than one
-thread.
-
-`tools/ControlPanel.ps1` remains the working way to change settings live.
-- Settings now hot-reload: the mod watches the INI's last-write time and
+The toggle key is `[Overlay] ToggleKeyVirtualCode`, because the user has another
+tool bound to F10. `tools/ControlPanel.ps1` still works as an external panel.- Settings now hot-reload: the mod watches the INI's last-write time and
   reloads within a poll. `tools/ControlPanel.ps1` (launcher `ControlPanel.bat`)
   edits the INI live and toggles with F10 from anywhere.
 - **Keeping plug-in chips on death is live**, contributed by a parallel session

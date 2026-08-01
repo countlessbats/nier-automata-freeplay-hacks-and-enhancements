@@ -479,3 +479,39 @@ was first enabled — those stay flagged until recovered normally.
   are searchable by name (`@SceneState`, `GlobalPhase`).
 - Sound banks are Wwise (`.bnk`, `.wsp`); `WwiseInfo.wai` indexes them but holds
   no event names. `SoundMacro.bxm` is a data-driven name→event macro table.
+
+
+## The in-game overlay: hooking this game's renderer
+
+The panel is Dear ImGui drawn from the game's own present call. Getting there
+took four failures, each worth recording because they are all easy to repeat.
+
+The game imports exactly two graphics entry points: `D3D11CreateDevice` from
+d3d11.dll and `CreateDXGIFactory` from dxgi.dll. That is the whole surface.
+
+1. **Do not patch DXGI's shared vtable.** Creating a throwaway swap chain to
+   read `IDXGISwapChain`'s vtable and patching slot 8 there is the technique
+   most guides describe. It killed the game instantly with `0xc00000fd`, a stack
+   overflow, and the hook never even ran. That vtable is shared far more widely
+   than this process's swap chain. A probe run that created the dummy device but
+   left the vtable alone was perfectly stable, which isolated the cause.
+2. **Hook the object, not the class.** The working approach walks the game's own
+   path: patch the IAT entry for `CreateDXGIFactory`, give the returned factory a
+   *private copy* of its vtable, and hook swap-chain creation there. Only that
+   one object is affected and dxgi.dll is never written to.
+3. **Copy the whole vtable, generously.** A 16-entry copy of the factory crashed
+   the game: it asks for `IDXGIFactory2` and calls slots past the 1.0 interface,
+   which then read past the copy. The factory now clones 48 entries and the swap
+   chain 64.
+4. **This game presents through `Present1`, not `Present`.** The swap chain comes
+   from `CreateSwapChainForHwnd` (factory slot 15), so it is an
+   `IDXGISwapChain1` and the frame goes through slot **22**. Hooking only slot 8
+   is why the hook stayed silent through several attempts. Both are hooked now,
+   along with `ResizeBuffers` at slot 13.
+
+The window is 1600x900 windowed, so a `PrintWindow` call with
+`PW_RENDERFULLCONTENT` captures it; a plain GDI screen grab does not, which
+matters when verifying the panel without a person watching.
+
+Settings are written back to the INI, which the mod already watches and reloads,
+so the panel needs no shared state with the polling thread.

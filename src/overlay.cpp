@@ -24,10 +24,14 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
 
 namespace {
 using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+// IDXGISwapChain1::Present1, vtable slot 22. CreateSwapChainForHwnd hands back a
+// swap chain 1, and that is the entry point this game actually presents through.
+using Present1Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT, const void*);
 using ResizeBuffersFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT, UINT,
                                                     DXGI_FORMAT, UINT);
 
 PresentFn g_present{};
+Present1Fn g_present1{};
 ResizeBuffersFn g_resize_buffers{};
 ID3D11Device* g_device{};
 ID3D11DeviceContext* g_context{};
@@ -39,6 +43,9 @@ bool g_visible{};
 bool g_failed{};
 Config g_settings;
 bool g_settings_loaded{};
+bool g_passthrough_only{};
+int g_toggle_key = VK_F10;
+volatile LONG g_present_calls{};
 
 void write_setting(const wchar_t* section, const wchar_t* key, const wchar_t* value) {
     WritePrivateProfileStringW(section, key, value, config_path().c_str());
@@ -58,6 +65,15 @@ void write_unsigned(const wchar_t* section, const wchar_t* key, unsigned value) 
     wchar_t text[32]{};
     swprintf_s(text, L"%u", value);
     write_setting(section, key, text);
+}
+
+// Step-by-step breadcrumbs through the one-time initialisation. log_line closes
+// the file every call, so the last line written survives a crash.
+void step(const char* what) {
+    static const char* last = nullptr;
+    if (last == what) return;
+    last = what;
+    log_line("Overlay: %s", what);
 }
 
 void release_target() {
@@ -93,7 +109,7 @@ void draw_panel() {
     ImGui::SetNextWindowSize(ImVec2(430, 0), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(60, 60), ImGuiCond_FirstUseEver);
     ImGui::Begin("NieR Haptics", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-    ImGui::TextDisabled("F10 closes this panel. Changes apply immediately.");
+    ImGui::TextDisabled("Press the toggle key to close. Changes apply immediately.");
     ImGui::Separator();
 
     if (ImGui::Checkbox("Haptics on", &g_settings.haptics_enabled))
@@ -142,28 +158,48 @@ void draw_panel() {
     ImGui::End();
 }
 
-HRESULT STDMETHODCALLTYPE present_hook(IDXGISwapChain* swap_chain, UINT interval, UINT flags) {
+// Everything the panel does per frame, shared by Present and Present1.
+void render_overlay(IDXGISwapChain* swap_chain) {
     // A Present hook must never run inside itself. 1.0.14 crashed the game with
     // a stack overflow on the first frame, and whatever re-entered, this guard
     // turns that class of failure into a dropped frame instead of a crash.
     static thread_local bool inside = false;
-    if (inside) return g_present(swap_chain, interval, flags);
+    if (inside) return;
     inside = true;
     struct Leave { ~Leave() { inside = false; } } leave;
 
+    const LONG call = InterlockedIncrement(&g_present_calls);
+    if (call == 1) log_line("Overlay: present hook fired (swap chain %p)", swap_chain);
+    if (g_passthrough_only) {
+        if (call == 1) log_line("Overlay: passthrough only; not drawing");
+        return;
+    }
+
     if (!g_failed && !g_initialised) {
+        step("present reached");
         if (SUCCEEDED(swap_chain->GetDevice(__uuidof(ID3D11Device),
                                             reinterpret_cast<void**>(&g_device))) && g_device) {
+            step("device acquired");
             g_device->GetImmediateContext(&g_context);
             DXGI_SWAP_CHAIN_DESC desc{};
             swap_chain->GetDesc(&desc);
             g_window = desc.OutputWindow;
+            log_line("Overlay: window %p, %ux%u, format %d, buffers %u, windowed %d",
+                     desc.OutputWindow, desc.BufferDesc.Width, desc.BufferDesc.Height,
+                     static_cast<int>(desc.BufferDesc.Format), desc.BufferCount,
+                     static_cast<int>(desc.Windowed));
             if (g_window && g_context && create_target(swap_chain)) {
+                step("render target created");
                 IMGUI_CHECKVERSION();
                 ImGui::CreateContext();
                 ImGui::GetIO().IniFilename = nullptr;
                 ImGui::StyleColorsDark();
-                if (ImGui_ImplWin32_Init(g_window) && ImGui_ImplDX11_Init(g_device, g_context)) {
+                step("imgui context created");
+                const bool win32_ready = ImGui_ImplWin32_Init(g_window);
+                step(win32_ready ? "win32 backend ready" : "win32 backend failed");
+                const bool dx11_ready = win32_ready && ImGui_ImplDX11_Init(g_device, g_context);
+                step(dx11_ready ? "dx11 backend ready" : "dx11 backend failed");
+                if (dx11_ready) {
                     g_original_wndproc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
                         g_window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&overlay_wndproc)));
                     g_initialised = true;
@@ -182,11 +218,12 @@ HRESULT STDMETHODCALLTYPE present_hook(IDXGISwapChain* swap_chain, UINT interval
 
     if (g_initialised) {
         static bool held = false;
-        const bool down = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+        const bool down = (GetAsyncKeyState(g_toggle_key) & 0x8000) != 0;
         if (down && !held) g_visible = !g_visible;
         held = down;
 
         if (g_visible && g_target) {
+            step("first frame drawn");
             ImGui_ImplDX11_NewFrame();
             ImGui_ImplWin32_NewFrame();
             ImGui::NewFrame();
@@ -196,7 +233,17 @@ HRESULT STDMETHODCALLTYPE present_hook(IDXGISwapChain* swap_chain, UINT interval
             ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
         }
     }
+}
+
+HRESULT STDMETHODCALLTYPE present_hook(IDXGISwapChain* swap_chain, UINT interval, UINT flags) {
+    render_overlay(swap_chain);
     return g_present(swap_chain, interval, flags);
+}
+
+HRESULT STDMETHODCALLTYPE present1_hook(IDXGISwapChain* swap_chain, UINT interval, UINT flags,
+                                        const void* parameters) {
+    render_overlay(swap_chain);
+    return g_present1(swap_chain, interval, flags, parameters);
 }
 
 HRESULT STDMETHODCALLTYPE resize_buffers_hook(IDXGISwapChain* swap_chain, UINT count, UINT width,
@@ -207,69 +254,140 @@ HRESULT STDMETHODCALLTYPE resize_buffers_hook(IDXGISwapChain* swap_chain, UINT c
     return hr;
 }
 
-bool patch_vtable_entry(void** vtable, size_t index, void* replacement, void** original) {
-    DWORD protection{};
-    if (!VirtualProtect(&vtable[index], sizeof(void*), PAGE_READWRITE, &protection)) return false;
-    *original = vtable[index];
-    vtable[index] = replacement;
-    VirtualProtect(&vtable[index], sizeof(void*), protection, &protection);
-    return true;
+// Hooking DXGI's shared vtable killed the game: patching the Present slot in
+// dxgi.dll reached far more than this process's swap chain. Instead each object
+// we care about gets a private copy of its vtable, so only that one object is
+// affected and dxgi.dll is never written to.
+void** clone_vtable(void* object, size_t entries) {
+    auto** original = *reinterpret_cast<void***>(object);
+    auto** copy = new void*[entries];
+    memcpy(copy, original, entries * sizeof(void*));
+    *reinterpret_cast<void***>(object) = copy;
+    return copy;
+}
+
+using CreateSwapChainFn = HRESULT(STDMETHODCALLTYPE*)(IDXGIFactory*, IUnknown*,
+                                                      DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**);
+// IDXGIFactory2::CreateSwapChainForHwnd, vtable slot 15. The game only imports
+// the DXGI 1.0 entry point but may still ask the factory for the newer
+// interface, which returns the same object and so the same cloned vtable.
+using CreateSwapChainForHwndFn = HRESULT(STDMETHODCALLTYPE*)(void*, IUnknown*, HWND, const void*,
+                                                             const void*, IDXGIOutput*, void**);
+using CreateDXGIFactoryFn = HRESULT(WINAPI*)(REFIID, void**);
+
+CreateSwapChainFn g_create_swap_chain{};
+CreateSwapChainForHwndFn g_create_swap_chain_for_hwnd{};
+CreateDXGIFactoryFn g_create_factory{};
+bool g_swap_chain_hooked{};
+
+void hook_swap_chain(IDXGISwapChain* swap_chain) {
+    if (g_swap_chain_hooked || !swap_chain) return;
+    // Cloned well past IDXGISwapChain1's 29 entries: a short copy meant the game
+    // called through memory that was not ours, which is what crashed it before.
+    auto** vtable = clone_vtable(swap_chain, 64);
+    g_present = reinterpret_cast<PresentFn>(vtable[8]);
+    g_resize_buffers = reinterpret_cast<ResizeBuffersFn>(vtable[13]);
+    g_present1 = reinterpret_cast<Present1Fn>(vtable[22]);
+    vtable[8] = reinterpret_cast<void*>(&present_hook);
+    vtable[13] = reinterpret_cast<void*>(&resize_buffers_hook);
+    vtable[22] = reinterpret_cast<void*>(&present1_hook);
+    g_swap_chain_hooked = true;
+    log_line("Overlay: hooked this swap chain (Present %p, Present1 %p)", g_present, g_present1);
+}
+
+HRESULT STDMETHODCALLTYPE create_swap_chain_hook(IDXGIFactory* factory, IUnknown* device,
+                                                 DXGI_SWAP_CHAIN_DESC* desc,
+                                                 IDXGISwapChain** out) {
+    const HRESULT hr = g_create_swap_chain(factory, device, desc, out);
+    if (SUCCEEDED(hr) && out && *out) {
+        log_line("Overlay: swap chain came from CreateSwapChain");
+        hook_swap_chain(*out);
+    }
+    return hr;
+}
+
+HRESULT STDMETHODCALLTYPE create_swap_chain_for_hwnd_hook(void* factory, IUnknown* device,
+                                                          HWND window, const void* desc,
+                                                          const void* fullscreen,
+                                                          IDXGIOutput* restrict_output,
+                                                          void** out) {
+    const HRESULT hr = g_create_swap_chain_for_hwnd(factory, device, window, desc, fullscreen,
+                                                    restrict_output, out);
+    if (SUCCEEDED(hr) && out && *out) {
+        log_line("Overlay: swap chain came from CreateSwapChainForHwnd");
+        hook_swap_chain(reinterpret_cast<IDXGISwapChain*>(*out));
+    }
+    return hr;
+}
+
+HRESULT WINAPI create_factory_hook(REFIID riid, void** out) {
+    const HRESULT hr = g_create_factory(riid, out);
+    if (SUCCEEDED(hr) && out && *out) {
+        static bool done = false;
+        if (!done) {
+            done = true;
+            // Cloned generously: if the game asks for IDXGIFactory2 it will call
+            // through slots past the 1.0 interface, and those must still be valid.
+            auto** vtable = clone_vtable(*out, 48);
+            g_create_swap_chain = reinterpret_cast<CreateSwapChainFn>(vtable[10]);
+            vtable[10] = reinterpret_cast<void*>(&create_swap_chain_hook);
+            g_create_swap_chain_for_hwnd =
+                reinterpret_cast<CreateSwapChainForHwndFn>(vtable[15]);
+            vtable[15] = reinterpret_cast<void*>(&create_swap_chain_for_hwnd_hook);
+            log_line("Overlay: factory created; watching CreateSwapChain and "
+                     "CreateSwapChainForHwnd");
+        }
+    }
+    return hr;
+}
+
+bool patch_main_import(const char* dll_name, const char* function_name, void* replacement,
+                       void** original) {
+    auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
+    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    const auto& directory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!directory.VirtualAddress) return false;
+    auto* descriptor = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + directory.VirtualAddress);
+    for (; descriptor->Name; ++descriptor) {
+        if (_stricmp(reinterpret_cast<const char*>(base + descriptor->Name), dll_name) != 0) continue;
+        auto* names = reinterpret_cast<IMAGE_THUNK_DATA64*>(
+            base + (descriptor->OriginalFirstThunk ? descriptor->OriginalFirstThunk
+                                                   : descriptor->FirstThunk));
+        auto* slots = reinterpret_cast<IMAGE_THUNK_DATA64*>(base + descriptor->FirstThunk);
+        for (; names->u1.AddressOfData; ++names, ++slots) {
+            if (IMAGE_SNAP_BY_ORDINAL64(names->u1.Ordinal)) continue;
+            auto* import = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
+            if (strcmp(reinterpret_cast<const char*>(import->Name), function_name) != 0) continue;
+            DWORD protection{};
+            if (!VirtualProtect(&slots->u1.Function, sizeof(void*), PAGE_READWRITE, &protection))
+                return false;
+            *original = reinterpret_cast<void*>(slots->u1.Function);
+            slots->u1.Function = reinterpret_cast<ULONGLONG>(replacement);
+            VirtualProtect(&slots->u1.Function, sizeof(void*), protection, &protection);
+            return true;
+        }
+    }
+    return false;
 }
 }  // namespace
 
 bool install_overlay() {
-    // A throwaway swap chain purely to read the vtable DXGI shares with the
-    // game's own; nothing is ever rendered through it.
-    WNDCLASSEXW wc{sizeof(wc)};
-    wc.lpfnWndProc = DefWindowProcW;
-    wc.hInstance = GetModuleHandleW(nullptr);
-    wc.lpszClassName = L"NierHapticsOverlayProbe";
-    RegisterClassExW(&wc);
-    HWND probe = CreateWindowExW(0, wc.lpszClassName, L"", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64,
-                                 nullptr, nullptr, wc.hInstance, nullptr);
-    if (!probe) {
-        UnregisterClassW(wc.lpszClassName, wc.hInstance);
-        log_line("Overlay: could not create the probe window");
+    g_passthrough_only = GetPrivateProfileIntW(L"Overlay", L"PassthroughOnly", 0,
+                                               config_path().c_str()) != 0;
+    g_toggle_key = static_cast<int>(GetPrivateProfileIntW(L"Overlay", L"ToggleKeyVirtualCode",
+                                                          VK_F10, config_path().c_str()));
+    // The game creates its device through CreateDXGIFactory, so intercepting that
+    // import leads to the factory, then to the swap chain it makes. No device of
+    // our own is created and nothing shared is modified.
+    void* original{};
+    if (!patch_main_import("dxgi.dll", "CreateDXGIFactory",
+                           reinterpret_cast<void*>(&create_factory_hook), &original)) {
+        log_line("Overlay: the game does not import CreateDXGIFactory; panel unavailable");
         return false;
     }
-
-    DXGI_SWAP_CHAIN_DESC desc{};
-    desc.BufferCount = 1;
-    desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    desc.OutputWindow = probe;
-    desc.SampleDesc.Count = 1;
-    desc.Windowed = TRUE;
-    desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
-    IDXGISwapChain* swap_chain{};
-    ID3D11Device* device{};
-    ID3D11DeviceContext* context{};
-    D3D_FEATURE_LEVEL level{};
-    const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
-    const HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, levels, 2, D3D11_SDK_VERSION,
-        &desc, &swap_chain, &device, &level, &context);
-
-    bool hooked = false;
-    if (SUCCEEDED(hr) && swap_chain) {
-        auto** vtable = *reinterpret_cast<void***>(swap_chain);
-        hooked = patch_vtable_entry(vtable, 8, reinterpret_cast<void*>(&present_hook),
-                                    reinterpret_cast<void**>(&g_present)) &&
-                 patch_vtable_entry(vtable, 13, reinterpret_cast<void*>(&resize_buffers_hook),
-                                    reinterpret_cast<void**>(&g_resize_buffers));
-    }
-    if (swap_chain) swap_chain->Release();
-    if (context) context->Release();
-    if (device) device->Release();
-    DestroyWindow(probe);
-    UnregisterClassW(wc.lpszClassName, wc.hInstance);
-
-    if (!hooked) {
-        log_line("Overlay: could not hook the swap chain (0x%08lX); the panel is unavailable", hr);
-        return false;
-    }
-    log_line("Overlay: swap chain hooked; the panel will appear on the first frame");
+    g_create_factory = reinterpret_cast<CreateDXGIFactoryFn>(original);
+    log_line("Overlay: waiting for the game to create its swap chain");
     return true;
 }
 
