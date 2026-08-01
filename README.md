@@ -7,20 +7,21 @@ NieR:Automata (build 7020666).
 
 - True DualSense waveform haptics over the controller's USB audio endpoint.
 - Distinct pulses for menu movement, footsteps, outgoing hits, and damage taken.
-- Alternating left/right footstep texture based on actual distance travelled.
-- Hitstop whenever a nearby enemy loses health: 8% game speed for 1000 ms by
+- Alternating left/right footstep texture paced by movement-stick intensity.
+- Hitstop whenever a health-bearing non-player entity loses health: 8% game speed for 1000 ms by
   default.
 - Plain-text configuration in `NierHaptics.ini`.
 
 ## Requirements
 
-- A wired Sony DualSense controller.
+- A wired Sony DualSense controller, or DSX's beta wireless-haptics virtual
+  audio device.
 - The Steam release of NieR:Automata, build 7020666.
 - The Windows playback device named `DualSense Wireless Controller` must be
   enabled. It does not need to be the default audio device.
 
-Steam Input may remain enabled. The haptic stream is sent directly to the
-controller audio endpoint and does not depend on XInput rumble.
+Steam Input may remain enabled. The haptic stream is sent to the controller (or
+DSX virtual controller) audio endpoint and does not depend on XInput rumble.
 
 ## Install
 
@@ -35,14 +36,17 @@ Edit `NierHaptics.ini` beside `NieRAutomata.exe`, then restart the game. Strengt
 values range from 0.0 to 1.0. Set any feature's `Enabled` value to 0 to disable it.
 
 `HitstopDurationMs` is real-world time. The diagnostic default is currently 1000 ms even
-though the game itself advances at only 8% speed during the effect.
+though the game itself advances at only 8% speed during the effect. Menu pulses
+are enabled before a save is loaded and after Start/Back opens a menu; pressing
+Start/Back again or Cancel returns haptics to gameplay mode.
 
 ## Troubleshooting
 
 `NierHaptics.log` beside the game executable reports the detected game hooks and
 DualSense audio format. If haptics are unavailable, confirm the controller is
 wired and that **Speakers (DualSense Wireless Controller)** is enabled under
-Windows sound devices.
+Windows sound devices. When using DSX wireless haptics, keep its virtual
+DualSense audio playback device enabled.
 
 The mod is intentionally build-specific. If Steam updates the executable and the
 entity signature no longer matches, gameplay continues normally and the log
