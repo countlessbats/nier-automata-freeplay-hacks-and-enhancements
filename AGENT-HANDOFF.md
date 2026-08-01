@@ -9,8 +9,14 @@
 - Installed build: **1.0.21**, commit `fced0eb`.
 - Installed DLL SHA-256:
   `976E663423AAA25910E4373ED62430219CC2E6A78DC8A14DBBC1D889624A435C`.
-- Git has **no configured remote**, so nothing has been pushed. Every commit is
-  local only. This must be reported whenever work is called complete.
+- Remote: `origin` ->
+  https://github.com/countlessbats/nier-automata-freeplay-hacks-and-enhancements
+  (public). Push every commit before calling work complete.
+- **History was rewritten once, before the first push**, to purge bulk strings
+  extracted from the game binary and four screen captures that had caught the
+  desktop rather than the game window. `.gitignore` keeps them out. Never commit
+  `analysis/exe_strings.txt`, `analysis/nier_dump.bin`, or a capture that was not
+  taken with `PrintWindow` against the game window.
 - **1.0.17 is installed, launched and verified.** The next build must be
   **1.0.18** with a matching commit.
 - Footsteps are gated on gait, not combat. The event names carry it
