@@ -50,7 +50,6 @@ Config load_config() {
     const int interval = static_cast<int>(GetPrivateProfileIntW(
         L"Hitstop", L"HitstopMinIntervalMs", c.hitstop_min_interval_ms, path.c_str()));
     c.hitstop_min_interval_ms = static_cast<unsigned>(std::clamp(interval, 0, 5000));
-    c.hitstop_affects_enemies = read_bool(L"Hitstop", L"HitstopAffectsEnemies", c.hitstop_affects_enemies, path);
     const int window = static_cast<int>(GetPrivateProfileIntW(
         L"Haptics", L"MeleeAttributionWindowMs", c.melee_attribution_window_ms, path.c_str()));
     c.melee_attribution_window_ms = static_cast<unsigned>(std::clamp(window, 50, 5000));

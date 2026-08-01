@@ -8,9 +8,6 @@ struct Config {
     float hitstop_speed{0.35f};
     unsigned hitstop_duration_ms{130};
     unsigned hitstop_min_interval_ms{240};
-    // The engine's own time acceleration only slows the player, so enemies are
-    // slowed alongside by scaling their animation rate for the same window.
-    bool hitstop_affects_enemies{true};
     // A shared hit-confirm sound only counts as the player's if one of the
     // player's own swings happened this recently.
     unsigned melee_attribution_window_ms{700};

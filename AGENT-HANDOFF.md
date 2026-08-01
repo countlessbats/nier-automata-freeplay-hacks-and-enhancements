@@ -6,15 +6,28 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.7**, commit `5744ca3`.
+- Installed build: **1.0.8**, commit pending.
 - Installed DLL SHA-256:
-  `3278135A04D7C1BE08F5814BC895579B38B8ED46012238C2CC4606B8A60D95E1`.
+  `8FFDC2130B609E0F3478C4897FDAE0536C8AA5F8037CABE02EB4C2819343F96D`.
 - Git has **no configured remote**, so nothing has been pushed. Every commit is
   local only. This must be reported whenever work is called complete.
-- **1.0.7 has been built, smoke-loaded, installed, hash-verified, and launched
-  in the real game to confirm every hook resolves. The user has not yet played
-  it.** The next build shown to the user must be **1.0.8** with a matching
-  commit.
+- **1.0.8 has been built, smoke-loaded and installed. It is a crash fix.** The
+  next build shown to the user must be **1.0.9** with a matching commit.
+
+## 1.0.7 crashed the game — do not reintroduce what caused it
+
+1.0.7 wrote `anim_spd_rate` (`behavior + 0xC40`) on every non-player entity
+during hitstop, to slow enemies alongside the player. The game crashed after a
+couple of hits. That write was the mod's **only** write into game memory, and
+the offset came from a struct definition for `BehaviorAppBase` that was never
+verified against the varied classes actually present in the entity list, so it
+was landing somewhere unintended on at least some entities. `safe_write` did not
+help: an SEH guard catches a fault, not a valid-looking write to the wrong
+field, which corrupts state and crashes later.
+
+1.0.8 removes it. **The mod now writes nothing into game memory** — it only
+reads, hooks, and calls the game's own functions. Keep it that way unless an
+offset has been confirmed for every class it will be applied to.
 
 ## User feedback so far
 
@@ -30,6 +43,10 @@ Addressed in 1.0.6. Nothing in 1.0.6 has been played yet.
 The user asked whether a CheatEngine-style whole-clock deceleration would be
 cheaper. It would not: that is exactly what 1.0.5 already did, and it is the
 cause of the frame-rate collapse. See the timing section of the internals doc.
+
+After 1.0.7: **the game crashed** (see below); 9S's sword swings still vibrated
+because `wpf000_*` weapon sounds were treated as the player's and the companion
+plays them too. Both fixed in 1.0.8.
 
 After 1.0.6: drone/pod vibration to be removed entirely — it fires often enough
 to drown out everything else. 9S's melee hits were still vibrating. Hitstop

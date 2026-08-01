@@ -23,22 +23,10 @@ struct Vec3 { float x{}, y{}, z{}; };
 //   behavior + 0xCA0  CharacterController, whose +0x794 is the movement speed
 //     the game itself computes, so 0xCA0 + 0x794 = 0x1434.
 constexpr uintptr_t kControllerSpeed = 0x1434;
-// BehaviorAppBase::anim_spd_rate. The engine's time acceleration only slows the
-// player, so enemies are slowed by scaling their animation rate directly.
-constexpr uintptr_t kAnimSpeedRate = 0xC40;
 
 template <typename T> bool safe_read(uintptr_t address, T& value) {
     __try {
         value = *reinterpret_cast<const T*>(address);
-        return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return false;
-    }
-}
-
-template <typename T> bool safe_write(uintptr_t address, const T& value) {
-    __try {
-        *reinterpret_cast<T*>(address) = value;
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
@@ -140,15 +128,15 @@ SoundKind classify(const std::string& lowered) {
 
 // `core_small_sword_hit` is a shared hit-confirm with no owner in its name, so
 // the only way to tell 2B's hit from 9S's is that a hit follows the attacker's
-// own swing. The player's swings are attributable: `pl0000_*_atk*` carries the
-// player's model prefix and `wpf000_*` is the sword she is holding, while 9S's
-// come through as `pl0200_*`.
+// own swing.
+//
+// Only sounds carrying the player's own model prefix count. Weapon sounds such
+// as `wpf000_combo_swing_01` were tried and are not usable: the companion plays
+// them too, so they let 9S's swings through.
 bool is_attack_sound(const std::string& lowered, const std::string& player_prefix) {
-    const bool players_body = !player_prefix.empty() &&
-        lowered.rfind(player_prefix + "_", 0) == 0 && contains(lowered, "atk");
-    const bool players_weapon = lowered.rfind("wpf", 0) == 0 &&
-        (contains(lowered, "swing") || contains(lowered, "atk"));
-    return players_body || players_weapon;
+    if (player_prefix.empty()) return false;
+    if (lowered.rfind(player_prefix + "_", 0) != 0) return false;
+    return contains(lowered, "atk") || contains(lowered, "swing");
 }
 
 // `pl0000_step_walk_L_pl` names the foot outright, so alternation is only a
@@ -196,8 +184,6 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     bool left_foot{};
     ULONGLONG last_footstep{};
     ULONGLONG last_player_attack{};
-    ULONGLONG hitstop_until{};
-    bool hitstop_applied_to_entities{};
     unsigned suppressed_hitstops{};
     unsigned foreign_melee_hits{};
 
@@ -221,24 +207,6 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         Vec3 player_position{};
         bool have_player{};
 
-        // While a hitstop is running, hold every other character's animation at
-        // the same rate; one pass after it ends puts them back to normal.
-        const bool hitstop_running = hitstop_until && loop_time < hitstop_until;
-        bool hitstop_scale_enemies{};
-        float enemy_rate = 1.0f;
-        if (config_.hitstop_affects_enemies) {
-            if (hitstop_running) {
-                hitstop_scale_enemies = true;
-                enemy_rate = config_.hitstop_speed;
-                hitstop_applied_to_entities = true;
-            } else if (hitstop_applied_to_entities) {
-                hitstop_scale_enemies = true;
-                enemy_rate = 1.0f;
-                hitstop_applied_to_entities = false;
-                hitstop_until = 0;
-            }
-        }
-
         // Entity polling now exists only to notice the player taking damage.
         // Outgoing hits are read from the game's own hit-confirm sound, because
         // a health decrease somewhere in the entity list is equally true when a
@@ -261,9 +229,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                         safe_read(behavior + 0x85C, max_health) && max_health > 0 &&
                         max_health <= 100000000 && health <= max_health;
                     if (name != "Player") {
-                        if (!valid_health) continue;
-                        ++others;
-                        if (hitstop_scale_enemies) safe_write(behavior + kAnimSpeedRate, enemy_rate);
+                        if (valid_health) ++others;
                         continue;
                     }
                     if (safe_read(behavior + 0x50, player_position) &&
@@ -353,10 +319,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                     haptics_.play(HapticEffect::EnemyHit, config_.enemy_hit_strength);
                 if (!config_.hitstop_enabled) break;
                 if (begin_hitstop(config_.hitstop_speed, config_.hitstop_duration_ms,
-                                  config_.hitstop_min_interval_ms)) {
-                    hitstop_until = GetTickCount64() + config_.hitstop_duration_ms;
+                                  config_.hitstop_min_interval_ms))
                     log_line("Event: melee hit (%s); hitstop applied", event.name);
-                }
                 else if (++suppressed_hitstops % 20 == 1)
                     log_line("Event: melee hit (%s); hitstop still cooling down", event.name);
                 break;
