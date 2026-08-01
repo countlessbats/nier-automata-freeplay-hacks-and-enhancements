@@ -5,15 +5,15 @@
 - Repository: `D:\Documents\NieRAutomata`
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
-  `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
+  `3278135A04D7C1BE08F5814BC895579B38B8ED46012238C2CC4606B8A60D95E1`.
 - Installed build: **1.0.6**, commit 834e8b4.
 - Installed DLL SHA-256:
   `49C41F1D72FCD05AAD0701E91BC3694C47E97E13BC1888CC8A2B0C4420CE9F07`.
 - Git has **no configured remote**, so nothing has been pushed. Every commit is
   local only. This must be reported whenever work is called complete.
-- **1.0.6 has been built, smoke-loaded, installed, hash-verified, and launched
+- **1.0.7 has been built, smoke-loaded, installed, hash-verified, and launched
   in the real game to confirm every hook resolves. The user has not yet played
-  it.** The next build shown to the user must be **1.0.7** with a matching
+  it.** The next build shown to the user must be **1.0.8** with a matching
   commit.
 
 ## User feedback so far
@@ -30,6 +30,18 @@ Addressed in 1.0.6. Nothing in 1.0.6 has been played yet.
 The user asked whether a CheatEngine-style whole-clock deceleration would be
 cheaper. It would not: that is exactly what 1.0.5 already did, and it is the
 cause of the frame-rate collapse. See the timing section of the internals doc.
+
+After 1.0.6: drone/pod vibration to be removed entirely — it fires often enough
+to drown out everything else. 9S's melee hits were still vibrating. Hitstop
+appeared to slow only 2B's own animations. The melee haptic felt blunt and was
+asked to be "shimmerier". All four addressed in 1.0.7.
+
+**Hitstop has now failed three times and is the weak point of this project.**
+1.0.7's approach — the engine's player-scoped time acceleration plus scaling
+enemy `anim_spd_rate` — is the fourth attempt and is not confirmed. If it still
+does not read as a real hitstop, stop iterating on it and either locate the
+engine's per-frame delta properly or drop the feature; do not ship a fifth
+variation on the same guess.
 
 The user runs a real DualSense wirelessly through **DSX beta wireless haptics**,
 not a wired controller. DSX exposes a virtual four-channel 48-kHz DualSense

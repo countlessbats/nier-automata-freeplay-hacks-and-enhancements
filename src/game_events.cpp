@@ -23,10 +23,22 @@ struct Vec3 { float x{}, y{}, z{}; };
 //   behavior + 0xCA0  CharacterController, whose +0x794 is the movement speed
 //     the game itself computes, so 0xCA0 + 0x794 = 0x1434.
 constexpr uintptr_t kControllerSpeed = 0x1434;
+// BehaviorAppBase::anim_spd_rate. The engine's time acceleration only slows the
+// player, so enemies are slowed by scaling their animation rate directly.
+constexpr uintptr_t kAnimSpeedRate = 0xC40;
 
 template <typename T> bool safe_read(uintptr_t address, T& value) {
     __try {
         value = *reinterpret_cast<const T*>(address);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+template <typename T> bool safe_write(uintptr_t address, const T& value) {
+    __try {
+        *reinterpret_cast<T*>(address) = value;
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
@@ -81,7 +93,7 @@ bool get_name(uintptr_t entity, std::string& out) {
     return !out.empty();
 }
 
-enum class SoundKind { Ignored, Footstep, MenuTick, MenuConfirm, MenuCancel, MeleeHit, PodFire };
+enum class SoundKind { Ignored, Footstep, MenuTick, MenuConfirm, MenuCancel, MeleeHit };
 
 bool contains(const std::string& haystack, const char* needle) {
     return haystack.find(needle) != std::string::npos;
@@ -108,9 +120,6 @@ bool is_footstep_name(const std::string& lowered) {
 SoundKind classify(const std::string& lowered) {
     if (lowered.empty()) return SoundKind::Ignored;
     if (is_footstep_name(lowered)) return SoundKind::Footstep;
-    // The pod's machine gun firing, which is an action the player takes rather
-    // than an impact that happens somewhere in the world.
-    if (contains(lowered, "valcan_shot")) return SoundKind::PodFire;
 
     const bool menu_namespace = lowered.rfind("core_", 0) == 0 || lowered.rfind("se_", 0) == 0;
     if (!menu_namespace) return SoundKind::Ignored;
@@ -127,6 +136,19 @@ SoundKind classify(const std::string& lowered) {
     if (contains(lowered, "cursor") || contains(lowered, "toptab") ||
         contains(lowered, "menu_slide")) return SoundKind::MenuTick;
     return SoundKind::Ignored;
+}
+
+// `core_small_sword_hit` is a shared hit-confirm with no owner in its name, so
+// the only way to tell 2B's hit from 9S's is that a hit follows the attacker's
+// own swing. The player's swings are attributable: `pl0000_*_atk*` carries the
+// player's model prefix and `wpf000_*` is the sword she is holding, while 9S's
+// come through as `pl0200_*`.
+bool is_attack_sound(const std::string& lowered, const std::string& player_prefix) {
+    const bool players_body = !player_prefix.empty() &&
+        lowered.rfind(player_prefix + "_", 0) == 0 && contains(lowered, "atk");
+    const bool players_weapon = lowered.rfind("wpf", 0) == 0 &&
+        (contains(lowered, "swing") || contains(lowered, "atk"));
+    return players_body || players_weapon;
 }
 
 // `pl0000_step_walk_L_pl` names the foot outright, so alternation is only a
@@ -173,7 +195,11 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     bool logged_player{};
     bool left_foot{};
     ULONGLONG last_footstep{};
+    ULONGLONG last_player_attack{};
+    ULONGLONG hitstop_until{};
+    bool hitstop_applied_to_entities{};
     unsigned suppressed_hitstops{};
+    unsigned foreign_melee_hits{};
 
     while (!stop_requested.load()) {
         const ULONGLONG loop_time = GetTickCount64();
@@ -194,6 +220,24 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         }
         Vec3 player_position{};
         bool have_player{};
+
+        // While a hitstop is running, hold every other character's animation at
+        // the same rate; one pass after it ends puts them back to normal.
+        const bool hitstop_running = hitstop_until && loop_time < hitstop_until;
+        bool hitstop_scale_enemies{};
+        float enemy_rate = 1.0f;
+        if (config_.hitstop_affects_enemies) {
+            if (hitstop_running) {
+                hitstop_scale_enemies = true;
+                enemy_rate = config_.hitstop_speed;
+                hitstop_applied_to_entities = true;
+            } else if (hitstop_applied_to_entities) {
+                hitstop_scale_enemies = true;
+                enemy_rate = 1.0f;
+                hitstop_applied_to_entities = false;
+                hitstop_until = 0;
+            }
+        }
 
         // Entity polling now exists only to notice the player taking damage.
         // Outgoing hits are read from the game's own hit-confirm sound, because
@@ -217,7 +261,9 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                         safe_read(behavior + 0x85C, max_health) && max_health > 0 &&
                         max_health <= 100000000 && health <= max_health;
                     if (name != "Player") {
-                        if (valid_health) ++others;
+                        if (!valid_health) continue;
+                        ++others;
+                        if (hitstop_scale_enemies) safe_write(behavior + kAnimSpeedRate, enemy_rate);
                         continue;
                     }
                     if (safe_read(behavior + 0x50, player_position) &&
@@ -250,6 +296,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             if (!event.name[0]) continue;
             const std::string lowered = lowercase(event.name);
             const SoundKind kind = classify(lowered);
+            if (is_attack_sound(lowered, player_prefix)) last_player_attack = GetTickCount64();
+
             // Any `_pl` sound identifies the character the player is currently
             // controlling, so the prefix follows story sections that swap it.
             if (is_player_sound(lowered)) {
@@ -265,7 +313,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             if (config_.log_sound_names && catalogued_names.size() < 400 &&
                 catalogued_names.insert(lowered).second) {
                 static const char* kKindNames[] = {"-", "footstep", "menu tick", "menu confirm",
-                                                   "menu cancel", "melee hit", "pod fire"};
+                                                   "menu cancel", "melee hit"};
                 log_line("Sound: %s (id 0x%08X) [%s%s]", event.name, event.id,
                          kKindNames[static_cast<int>(kind)], mine ? ", player" : "");
             }
@@ -292,20 +340,27 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 break;
             }
             case SoundKind::MeleeHit: {
+                const ULONGLONG now = GetTickCount64();
+                const ULONGLONG age = last_player_attack ? now - last_player_attack : ~0ULL;
+                if (age > config_.melee_attribution_window_ms) {
+                    if (++foreign_melee_hits % 10 == 1)
+                        log_line("Event: melee hit ignored; no player swing in the last %llu ms",
+                                 static_cast<unsigned long long>(
+                                     config_.melee_attribution_window_ms));
+                    break;
+                }
                 if (config_.enemy_hit_enabled)
                     haptics_.play(HapticEffect::EnemyHit, config_.enemy_hit_strength);
                 if (!config_.hitstop_enabled) break;
                 if (begin_hitstop(config_.hitstop_speed, config_.hitstop_duration_ms,
-                                  config_.hitstop_min_interval_ms))
+                                  config_.hitstop_min_interval_ms)) {
+                    hitstop_until = GetTickCount64() + config_.hitstop_duration_ms;
                     log_line("Event: melee hit (%s); hitstop applied", event.name);
+                }
                 else if (++suppressed_hitstops % 20 == 1)
                     log_line("Event: melee hit (%s); hitstop still cooling down", event.name);
                 break;
             }
-            case SoundKind::PodFire:
-                if (config_.pod_fire_enabled)
-                    haptics_.play(HapticEffect::PodFire, config_.pod_fire_strength);
-                break;
             case SoundKind::MenuTick:
                 if (config_.menu_enabled)
                     haptics_.play(HapticEffect::MenuTick, config_.menu_strength);

@@ -310,6 +310,23 @@ Two sites match and both resolve to the same pair. Singleton is at
 match + 8 + 7 + disp32(match + 11); the function at match + 39 + 5 +
 disp32(match + 40).
 
+**AccelTime is player-scoped, not a global game speed.** All 25 functions that
+read the object's active flag live in the player code region (`0x42xxxx` to
+`0x61xxxx`, the same range as `Pl0000`), and in play only the player character
+visibly slows. It is the "finisher slow" effect — the same update function that
+drives it also posts `State_FinishSlowOff`.
+
+A true global timescale has **not** been located. Leads that did not pan out:
+`GURADHITSTOPSCALE_` is a per-entity guard parameter from the object parameter
+table, not a global; the frequency and seconds-per-count globals stored at
+engine init have no direct code references. Slowing everything therefore needs
+either the engine's per-frame delta or a per-entity approach.
+
+The per-entity approach currently in use: scale `anim_spd_rate`
+(`BehaviorAppBase + 0xC40`) on every non-player entity for the hitstop window
+and write 1.0 back once when it ends. That slows characters but not projectiles
+or particles.
+
 ## Miscellaneous leads
 
 - `is_loading` global, via `48 83 ec 28 e8 ? ? ? ? c7 05 ? ? ? ? 01 00 00 00`,

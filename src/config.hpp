@@ -8,6 +8,12 @@ struct Config {
     float hitstop_speed{0.35f};
     unsigned hitstop_duration_ms{130};
     unsigned hitstop_min_interval_ms{240};
+    // The engine's own time acceleration only slows the player, so enemies are
+    // slowed alongside by scaling their animation rate for the same window.
+    bool hitstop_affects_enemies{true};
+    // A shared hit-confirm sound only counts as the player's if one of the
+    // player's own swings happened this recently.
+    unsigned melee_attribution_window_ms{700};
 
     bool menu_enabled{true};
     float menu_strength{0.20f};
@@ -19,10 +25,6 @@ struct Config {
     bool footstep_player_only{true};
     bool footstep_require_moving{true};
     unsigned footstep_min_interval_ms{70};
-    // The pod firing is an action the player takes; pod round impacts are not,
-    // and fire equally for the companion's pod, so they are ignored entirely.
-    bool pod_fire_enabled{true};
-    float pod_fire_strength{0.16f};
     bool enemy_hit_enabled{true};
     float enemy_hit_strength{0.62f};
     bool player_hit_enabled{true};

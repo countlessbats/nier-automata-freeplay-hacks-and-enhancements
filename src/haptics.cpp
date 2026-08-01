@@ -85,8 +85,7 @@ double duration(HapticEffect effect) {
     case HapticEffect::MenuCancel: return 0.038;
     case HapticEffect::FootLeft:
     case HapticEffect::FootRight: return 0.032;
-    case HapticEffect::PodFire: return 0.026;
-    case HapticEffect::EnemyHit: return 0.085;
+    case HapticEffect::EnemyHit: return 0.130;
     case HapticEffect::PlayerHit: return 0.220;
     }
     return 0.05;
@@ -120,19 +119,22 @@ void synthesize(const Voice& voice, double t, float& left, float& right) {
         balance = voice.effect == HapticEffect::FootLeft ? -0.75f : 0.75f;
         break;
     }
-    case HapticEffect::PodFire: {
-        // A dry, quick snap so sustained fire reads as a stutter, not a drone.
-        const float decay = static_cast<float>(std::exp(-70.0 * t));
-        sample = static_cast<float>(0.6 * std::sin(2.0 * kPi * 165.0 * t) +
-                                    0.4 * std::sin(2.0 * kPi * 330.0 * t)) *
-                 decay * static_cast<float>(voice.strength);
+    case HapticEffect::EnemyHit: {
+        // Sword on machine: a brief low impact under a bright ringing tail that
+        // beats against itself, rather than one blunt low thump. The high pair
+        // is detuned so it shimmers instead of sitting still.
+        const float impact = static_cast<float>(std::exp(-55.0 * t)) *
+            static_cast<float>(std::sin(2.0 * kPi * 90.0 * t));
+        const float ring = static_cast<float>(std::exp(-11.0 * t)) *
+            static_cast<float>(0.5 * std::sin(2.0 * kPi * 430.0 * t) +
+                               0.5 * std::sin(2.0 * kPi * 505.0 * t));
+        const float sparkle = static_cast<float>(std::exp(-24.0 * t)) *
+            static_cast<float>(std::sin(2.0 * kPi * 880.0 * t));
+        sample = (0.55f * impact + 0.34f * ring + 0.11f * sparkle) *
+                 static_cast<float>(voice.strength);
+        balance = static_cast<float>(0.3 * std::sin(2.0 * kPi * 23.0 * t));
         break;
     }
-    case HapticEffect::EnemyHit:
-        sample = static_cast<float>(0.62 * std::sin(2.0 * kPi * 118.0 * t) +
-                                    0.38 * std::sin(2.0 * kPi * 61.0 * t)) * envelope;
-        balance = 0.0f;
-        break;
     case HapticEffect::PlayerHit: {
         const float grit = static_cast<float>(std::sin(2.0 * kPi * 47.0 * t) *
                             std::sin(2.0 * kPi * 173.0 * t));

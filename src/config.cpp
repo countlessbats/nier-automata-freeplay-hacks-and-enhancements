@@ -50,6 +50,10 @@ Config load_config() {
     const int interval = static_cast<int>(GetPrivateProfileIntW(
         L"Hitstop", L"HitstopMinIntervalMs", c.hitstop_min_interval_ms, path.c_str()));
     c.hitstop_min_interval_ms = static_cast<unsigned>(std::clamp(interval, 0, 5000));
+    c.hitstop_affects_enemies = read_bool(L"Hitstop", L"HitstopAffectsEnemies", c.hitstop_affects_enemies, path);
+    const int window = static_cast<int>(GetPrivateProfileIntW(
+        L"Haptics", L"MeleeAttributionWindowMs", c.melee_attribution_window_ms, path.c_str()));
+    c.melee_attribution_window_ms = static_cast<unsigned>(std::clamp(window, 50, 5000));
     c.menu_enabled = read_bool(L"Haptics", L"MenuEnabled", c.menu_enabled, path);
     c.menu_strength = std::clamp(read_float(L"Haptics", L"MenuStrength", c.menu_strength, path), 0.0f, 1.0f);
     c.footsteps_enabled = read_bool(L"Haptics", L"FootstepsEnabled", c.footsteps_enabled, path);
@@ -60,8 +64,6 @@ Config load_config() {
         L"Haptics", L"FootstepMinIntervalMs", c.footstep_min_interval_ms, path.c_str()));
     c.footstep_min_interval_ms = static_cast<unsigned>(std::clamp(footstep_gap, 0, 1000));
     c.log_sound_names = read_bool(L"Diagnostics", L"LogSoundNames", c.log_sound_names, path);
-    c.pod_fire_enabled = read_bool(L"Haptics", L"PodFireEnabled", c.pod_fire_enabled, path);
-    c.pod_fire_strength = std::clamp(read_float(L"Haptics", L"PodFireStrength", c.pod_fire_strength, path), 0.0f, 1.0f);
     c.enemy_hit_enabled = read_bool(L"Haptics", L"EnemyHitEnabled", c.enemy_hit_enabled, path);
     c.enemy_hit_strength = std::clamp(read_float(L"Haptics", L"EnemyHitStrength", c.enemy_hit_strength, path), 0.0f, 1.0f);
     c.player_hit_enabled = read_bool(L"Haptics", L"PlayerHitEnabled", c.player_hit_enabled, path);

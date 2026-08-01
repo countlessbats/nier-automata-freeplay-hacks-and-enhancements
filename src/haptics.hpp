@@ -9,7 +9,6 @@ enum class HapticEffect {
     MenuCancel,   // cancel, back, error
     FootLeft,
     FootRight,
-    PodFire,
     EnemyHit,
     PlayerHit,
 };
