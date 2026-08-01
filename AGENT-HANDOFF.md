@@ -161,8 +161,11 @@ Native x64 `dinput8.dll` proxy loaded from the game directory.
 - `src/timescale.cpp` — virtual clock across every imported time source.
 - `src/config.cpp` / `.hpp` — INI configuration.
 - `tools/dump_image.cpp` — external decrypted-image dumper.
+- `tools/waveform_player.cpp`, `tools/WaveformStudio.ps1` — haptic design
+  sandbox; see `docs/WAVEFORM-CODES.md` for the NHW1 code format.
 - `analysis/nier.py` — dump analysis toolkit.
 - `docs/NIER-INTERNALS.md` — game internals reference.
+- `docs/WAVEFORM-CODES.md` — waveform studio and the NHW1 interchange format.
 - `Build.ps1`, `Install.ps1`, `Watch-Deploy.ps1`, `tests/smoke_loader.cpp`.
 
 Runtime log and install manifest live in the game directory as
@@ -175,6 +178,8 @@ Runtime log and install manifest live in the game directory as
 & .\tests\smoke_loader.exe .\dist\dinput8.dll
 & .\Install.ps1
 ```
+
+`Build-Tools.ps1` builds the standalone tools; they are not part of the mod.
 
 `Install.ps1` stages the build and starts a hidden watcher if the game is
 running, deploying as soon as it exits. Note that deployment **overwrites**
