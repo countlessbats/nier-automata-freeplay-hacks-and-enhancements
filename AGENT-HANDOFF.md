@@ -6,7 +6,7 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.9**, commit pending.
+- Installed build: **1.0.9**, commit `e5ff09e`.
 - Installed DLL SHA-256:
   `BB78B10F9810D510FA10FEE4EFCDC6D9810A5E2E7617B18E1E283E3B357B5289`.
 - Git has **no configured remote**, so nothing has been pushed. Every commit is
