@@ -1,6 +1,7 @@
 #include "config.hpp"
 #include "game_events.hpp"
 #include "haptics.hpp"
+#include "overlay.hpp"
 
 #include <Windows.h>
 #include <atomic>
@@ -26,12 +27,14 @@ FARPROC real_export(const char* name) {
 
 DWORD WINAPI mod_thread(void*) {
     const Config config = load_config();
-    log_line("NieR Haptics 1.0.13 starting");
+    log_line("NieR Haptics 1.0.15 starting");
+    if (config.overlay_enabled) install_overlay();
     Haptics haptics;
     if (config.haptics_enabled) haptics.start();
     GameEvents events(config, haptics);
     events.run(g_stop);
     haptics.stop();
+    shutdown_overlay();
     log_line("NieR Haptics stopped");
     return 0;
 }
