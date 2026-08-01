@@ -23,6 +23,15 @@ struct Config {
     bool player_hit_enabled{true};
     float player_hit_strength{0.90f};
 
+    // Repeated air jumps. The counter reaches 2 on a double jump, so holding it
+    // down leaves the game believing a jump is always available. It lives in the
+    // player's CharacterController (Pl0000 + 0xCA0, so 0x14A8 is +0x808 into it)
+    // and was identified by the jump probe rather than assumed.
+    bool multi_jump_enabled{true};
+    unsigned multi_jump_offset{0x14A8};
+    unsigned multi_jump_hold_value{0};
+    unsigned multi_jump_sane_max{8};
+
     // Writes every distinct sound-event name the game posts to the log, so new
     // events can be mapped without a timed in-game test.
     bool log_sound_names{true};

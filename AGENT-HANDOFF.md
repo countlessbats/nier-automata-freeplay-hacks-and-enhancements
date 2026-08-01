@@ -6,15 +6,15 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.11**, commit `6597551`.
+- Installed build: **1.0.12**, commit pending.
 - Installed DLL SHA-256:
-  `8137C4A467A45966F4B72F0D6C8F9CD928654AFEE8D325643BE3601FF4A07602`.
+  `A4F215E5064FD71850E0BC4F66B6CD4EED53DB74684B9A9F1E2459329880FA23`.
 - Git has **no configured remote**, so nothing has been pushed. Every commit is
   local only. This must be reported whenever work is called complete.
-- **1.0.11 has been built, smoke-loaded, installed, hash-verified and launched
-  in the real game.** The next build must be **1.0.12** with a matching commit.
-- Cosmetic leftover: the log banner still reads "NieR Haptics + Hitstop" even
-  though hitstop is gone. Rename it on the next build.
+- **1.0.12 has been built, smoke-loaded, installed, hash-verified and launched.**
+  The next build must be **1.0.13** with a matching commit.
+- The user prefers the agent to launch the game for them once a build is ready,
+  since it is slow to start.
 
 ## Hitstop is removed — do not revive it
 

@@ -47,6 +47,15 @@ bool copy_block(uintptr_t address, void* destination, size_t bytes) {
     }
 }
 
+bool write_dword(uintptr_t address, uint32_t value) {
+    __try {
+        *reinterpret_cast<volatile uint32_t*>(address) = value;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 bool readable(uintptr_t address, size_t bytes) {
     MEMORY_BASIC_INFORMATION mbi{};
     if (!VirtualQuery(reinterpret_cast<void*>(address), &mbi, sizeof(mbi))) return false;
@@ -227,6 +236,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     std::vector<uint32_t> grounded_snapshot;
     std::vector<uint32_t> live_snapshot;
     unsigned jump_probe_reports{};
+    bool logged_multi_jump{};
     unsigned foreign_melee_hits{};
 
     while (!stop_requested.load()) {
@@ -274,6 +284,24 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                         continue;
                     }
                     player_behavior = behavior;
+                    // Repeated air jumps: clear the jump counter so the game
+                    // always believes another jump is available. Only ever the
+                    // player's own object, only this one dword, and only when
+                    // it holds a plausible count.
+                    if (config_.multi_jump_enabled) {
+                        const uintptr_t counter = behavior + config_.multi_jump_offset;
+                        uint32_t jumps{};
+                        if (safe_read(counter, jumps) && jumps > config_.multi_jump_hold_value &&
+                            jumps <= config_.multi_jump_sane_max) {
+                            write_dword(counter, config_.multi_jump_hold_value);
+                            if (!logged_multi_jump) {
+                                log_line("Multi-jump: jump counter at +0x%X read %u and is being "
+                                         "held at %u", config_.multi_jump_offset, jumps,
+                                         config_.multi_jump_hold_value);
+                                logged_multi_jump = true;
+                            }
+                        }
+                    }
                     if (safe_read(behavior + 0x50, player_position) &&
                         std::isfinite(player_position.x) && std::isfinite(player_position.y) &&
                         std::isfinite(player_position.z)) have_player = true;

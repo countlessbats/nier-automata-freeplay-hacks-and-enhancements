@@ -270,7 +270,24 @@ Additionally established:
 - The game plays `pl0000_jump_first` and `pl0200_jump_second`, so the engine
   distinguishes the first jump from the second and a counter exists.
 
-**The air-jump counter has not been found statically.** Searches that came up
+### The air-jump counter: `Pl0000 + 0x14A8`
+
+Found with the probe rather than by reading code. Across five logged jumps only
+one field behaved like a count: `+0x14A8` read `1 -> 2` on jumps taken while
+already airborne — the only candidate reaching **2**, which is the double-jump
+limit. `+0x165F0` stepped `0 -> 1` on every jump and is an airborne flag, not a
+count; the rest appeared once or twice and did not recur.
+
+`Pl0000 + 0x14A8` is `CharacterController + 0x808` (the controller lives at
+`Pl0000 + 0xCA0`), a plausible home for it.
+
+Repeated jumps are implemented by holding that dword at zero from the polling
+loop, so the game always believes a jump is available. The write is guarded: the
+player's object only, this one dword, and only when it already holds a plausible
+count. The offset is exposed in the INI so a game update can be handled without
+a rebuild.
+
+**Historical note — the counter was not findable statically.** Searches that came up
 empty: the debug overlay at `0x71A3BD` is unreferenced and not in any vtable, so
 its request struct cannot be located that way; no field in the player region is
 both incremented and compared against a small limit; and the fields written

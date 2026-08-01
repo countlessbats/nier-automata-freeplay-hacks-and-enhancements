@@ -14,6 +14,16 @@ bool read_bool(const wchar_t* section, const wchar_t* key, bool fallback,
     return GetPrivateProfileIntW(section, key, fallback ? 1 : 0, path.c_str()) != 0;
 }
 
+unsigned read_number(const wchar_t* section, const wchar_t* key, unsigned fallback,
+                    const std::wstring& path) {
+    wchar_t value[64]{}, fallback_text[64]{};
+    swprintf_s(fallback_text, L"0x%X", fallback);
+    GetPrivateProfileStringW(section, key, fallback_text, value, 64, path.c_str());
+    wchar_t* end{};
+    const unsigned long result = wcstoul(value, &end, 0);  // base 0 accepts 0x
+    return end == value ? fallback : static_cast<unsigned>(result);
+}
+
 float read_float(const wchar_t* section, const wchar_t* key, float fallback,
                  const std::wstring& path) {
     wchar_t value[64]{};
@@ -54,6 +64,10 @@ Config load_config() {
     const int footstep_gap = static_cast<int>(GetPrivateProfileIntW(
         L"Haptics", L"FootstepMinIntervalMs", c.footstep_min_interval_ms, path.c_str()));
     c.footstep_min_interval_ms = static_cast<unsigned>(std::clamp(footstep_gap, 0, 1000));
+    c.multi_jump_enabled = read_bool(L"Gameplay", L"MultiJumpEnabled", c.multi_jump_enabled, path);
+    c.multi_jump_offset = read_number(L"Gameplay", L"MultiJumpCounterOffset", c.multi_jump_offset, path);
+    c.multi_jump_hold_value = read_number(L"Gameplay", L"MultiJumpHoldValue", c.multi_jump_hold_value, path);
+    c.multi_jump_sane_max = read_number(L"Gameplay", L"MultiJumpSaneMax", c.multi_jump_sane_max, path);
     c.log_sound_names = read_bool(L"Diagnostics", L"LogSoundNames", c.log_sound_names, path);
     c.probe_jump_fields = read_bool(L"Diagnostics", L"ProbeJumpFields", c.probe_jump_fields, path);
     c.enemy_hit_enabled = read_bool(L"Haptics", L"EnemyHitEnabled", c.enemy_hit_enabled, path);

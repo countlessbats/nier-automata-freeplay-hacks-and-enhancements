@@ -26,13 +26,13 @@ FARPROC real_export(const char* name) {
 
 DWORD WINAPI mod_thread(void*) {
     const Config config = load_config();
-    log_line("NieR Haptics + Hitstop 1.0.11 starting");
+    log_line("NieR Haptics 1.0.12 starting");
     Haptics haptics;
     if (config.haptics_enabled) haptics.start();
     GameEvents events(config, haptics);
     events.run(g_stop);
     haptics.stop();
-    log_line("NieR Haptics + Hitstop stopped");
+    log_line("NieR Haptics stopped");
     return 0;
 }
 }  // namespace
