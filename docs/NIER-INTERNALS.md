@@ -256,27 +256,59 @@ gracefully, and cannot corrupt instruction boundaries.
 
 ## Timing and hitstop
 
-The game reads **more than one clock**. Import call-site counts:
+### Do not scale the process clock
 
-| Import | Call sites |
-| --- | --- |
-| `QueryPerformanceCounter` | 39 |
-| `timeGetTime` (WINMM) | 17 |
-| `QueryPerformanceFrequency` | 8 |
-| `GetTickCount` | 3 |
-| `Sleep` | 14 |
+The game reads several clocks — `QueryPerformanceCounter` (39 call sites),
+`timeGetTime` (17), `GetTickCount` (3) — and the IAT is at RVA `0xC1B000`.
 
-Scaling only `QueryPerformanceCounter` desynchronizes the simulation from the
-frame limiter: the limiter waits for real time to catch up with the slowed
-clock, so the frame rate collapses instead of the action slowing down. Any
-timescale work must drive **every** imported clock from one virtual timeline.
-The IAT is at RVA `0xC1B000` (size `0x7F8`).
+Two attempts were made and both failed:
+
+1. Scaling only `QueryPerformanceCounter` desynchronized the simulation from the
+   frame limiter.
+2. Scaling **every** clock from one virtual timeline — the classic speedhack
+   approach — failed the same way, which is the useful result: NieR paces its
+   frames off the same clocks it simulates from, so telling it that 8% as much
+   time has passed makes the frame limiter wait about twelve times longer in
+   real time. The frame rate collapses and the action does not slow. No choice
+   of scale avoids this, because the limiter and the simulation read the same
+   value.
 
 Engine startup at `0x26C710` stores the performance frequency at `0x1769F80` and
 a derived seconds-per-count at `0x1769FA8`.
 
-If full clock virtualization ever proves insufficient, the next lead is the
-engine's own delta time rather than a larger clock scale.
+### Use the engine's own time acceleration
+
+The engine already implements slow motion, and it is what the game uses for its
+own dramatic moments.
+
+```c
+void AccelTime_request(void* self, float rate, float duration_frames,
+                       float delay_frames, int flags);   // RVA 0x800CD0
+```
+
+The singleton lives at RVA **`0x1250F68`**. The object's own fields:
+`+0x00` active flag, `+0x14` rate, `+0x18`/`+0x20` duration, `+0xC0` a critical
+section (so calling from a mod thread is safe), `+0xE8` enabled.
+
+The eight in-game call sites pass rates of **0.1, 0.4 and 0.5** over **8, 16 or
+30 frames**, with a delay of 5 frames — durations are in **frames at 60 Hz**,
+not milliseconds. `0x81A330` is the inner start function, which also plays
+`core_AccelTime_In`.
+
+Locate both the function and the singleton from one call-site signature:
+
+```
+F3 0F 10 1D ?? ?? ?? ??   movss xmm3, <delay>
+48 8D 0D ?? ?? ?? ??      lea   rcx,  <singleton>
+F3 0F 10 15 ?? ?? ?? ??   movss xmm2, <duration>
+F3 0F 10 0D ?? ?? ?? ??   movss xmm1, <rate>
+C7 44 24 20 00 00 00 00   mov   [rsp+0x20], 0
+E8 ?? ?? ?? ??            call  AccelTime_request
+```
+
+Two sites match and both resolve to the same pair. Singleton is at
+match + 8 + 7 + disp32(match + 11); the function at match + 39 + 5 +
+disp32(match + 40).
 
 ## Miscellaneous leads
 

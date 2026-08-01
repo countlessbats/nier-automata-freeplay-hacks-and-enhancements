@@ -81,7 +81,7 @@ bool get_name(uintptr_t entity, std::string& out) {
     return !out.empty();
 }
 
-enum class SoundKind { Ignored, Footstep, MenuTick, MenuConfirm, MenuCancel, PlayerAttackHit };
+enum class SoundKind { Ignored, Footstep, MenuTick, MenuConfirm, MenuCancel, MeleeHit, PodFire };
 
 bool contains(const std::string& haystack, const char* needle) {
     return haystack.find(needle) != std::string::npos;
@@ -108,13 +108,17 @@ bool is_footstep_name(const std::string& lowered) {
 SoundKind classify(const std::string& lowered) {
     if (lowered.empty()) return SoundKind::Ignored;
     if (is_footstep_name(lowered)) return SoundKind::Footstep;
+    // The pod's machine gun firing, which is an action the player takes rather
+    // than an impact that happens somewhere in the world.
+    if (contains(lowered, "valcan_shot")) return SoundKind::PodFire;
 
     const bool menu_namespace = lowered.rfind("core_", 0) == 0 || lowered.rfind("se_", 0) == 0;
     if (!menu_namespace) return SoundKind::Ignored;
-    // The game plays its own hit-confirm sound when the player's attack lands,
-    // which is what "the player scored a hit" actually means. Health polling
-    // could only see that somebody's health fell, companions included.
-    if (contains(lowered, "_hit")) return SoundKind::PlayerAttackHit;
+    // Only the melee hit-confirm drives hitstop. `core_shot_hit` and
+    // `core_shot_bullet_hit` are pod round impacts: they fire for the
+    // companion's pod as readily as the player's, and an impact is not
+    // something that should stop time or buzz the controller.
+    if (contains(lowered, "sword") && contains(lowered, "hit")) return SoundKind::MeleeHit;
     if (contains(lowered, "cancel")) return SoundKind::MenuCancel;
     if (contains(lowered, "error") || contains(lowered, "alart")) return SoundKind::MenuCancel;
     // "disicion" is the game's own spelling of the decision/confirm sound.
@@ -186,6 +190,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         if (list_global && !sound_hook_attempted) {
             sound_hook_attempted = true;
             sound_hook_active = install_sound_hook();
+            if (config_.hitstop_enabled) install_timescale_hook();
         }
         Vec3 player_position{};
         bool have_player{};
@@ -260,7 +265,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             if (config_.log_sound_names && catalogued_names.size() < 400 &&
                 catalogued_names.insert(lowered).second) {
                 static const char* kKindNames[] = {"-", "footstep", "menu tick", "menu confirm",
-                                                   "menu cancel", "player hit"};
+                                                   "menu cancel", "melee hit", "pod fire"};
                 log_line("Sound: %s (id 0x%08X) [%s%s]", event.name, event.id,
                          kKindNames[static_cast<int>(kind)], mine ? ", player" : "");
             }
@@ -286,18 +291,21 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                               strength);
                 break;
             }
-            case SoundKind::PlayerAttackHit: {
+            case SoundKind::MeleeHit: {
                 if (config_.enemy_hit_enabled)
                     haptics_.play(HapticEffect::EnemyHit, config_.enemy_hit_strength);
                 if (!config_.hitstop_enabled) break;
                 if (begin_hitstop(config_.hitstop_speed, config_.hitstop_duration_ms,
                                   config_.hitstop_min_interval_ms))
-                    log_line("Event: player hit connected (%s); hitstop applied", event.name);
+                    log_line("Event: melee hit (%s); hitstop applied", event.name);
                 else if (++suppressed_hitstops % 20 == 1)
-                    log_line("Event: player hit connected (%s); hitstop still cooling down",
-                             event.name);
+                    log_line("Event: melee hit (%s); hitstop still cooling down", event.name);
                 break;
             }
+            case SoundKind::PodFire:
+                if (config_.pod_fire_enabled)
+                    haptics_.play(HapticEffect::PodFire, config_.pod_fire_strength);
+                break;
             case SoundKind::MenuTick:
                 if (config_.menu_enabled)
                     haptics_.play(HapticEffect::MenuTick, config_.menu_strength);

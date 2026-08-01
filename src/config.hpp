@@ -19,6 +19,10 @@ struct Config {
     bool footstep_player_only{true};
     bool footstep_require_moving{true};
     unsigned footstep_min_interval_ms{70};
+    // The pod firing is an action the player takes; pod round impacts are not,
+    // and fire equally for the companion's pod, so they are ignored entirely.
+    bool pod_fire_enabled{true};
+    float pod_fire_strength{0.16f};
     bool enemy_hit_enabled{true};
     float enemy_hit_strength{0.62f};
     bool player_hit_enabled{true};

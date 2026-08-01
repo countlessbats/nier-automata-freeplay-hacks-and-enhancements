@@ -85,6 +85,7 @@ double duration(HapticEffect effect) {
     case HapticEffect::MenuCancel: return 0.038;
     case HapticEffect::FootLeft:
     case HapticEffect::FootRight: return 0.032;
+    case HapticEffect::PodFire: return 0.026;
     case HapticEffect::EnemyHit: return 0.085;
     case HapticEffect::PlayerHit: return 0.220;
     }
@@ -117,6 +118,14 @@ void synthesize(const Voice& voice, double t, float& left, float& right) {
                                     0.2 * std::sin(2.0 * kPi * 190.0 * t)) *
                  decay * static_cast<float>(voice.strength);
         balance = voice.effect == HapticEffect::FootLeft ? -0.75f : 0.75f;
+        break;
+    }
+    case HapticEffect::PodFire: {
+        // A dry, quick snap so sustained fire reads as a stutter, not a drone.
+        const float decay = static_cast<float>(std::exp(-70.0 * t));
+        sample = static_cast<float>(0.6 * std::sin(2.0 * kPi * 165.0 * t) +
+                                    0.4 * std::sin(2.0 * kPi * 330.0 * t)) *
+                 decay * static_cast<float>(voice.strength);
         break;
     }
     case HapticEffect::EnemyHit:

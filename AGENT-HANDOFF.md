@@ -6,22 +6,30 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.5**, commit `c2512de`.
+- Installed build: **1.0.6**, commit pending.
 - Installed DLL SHA-256:
-  `682D7FA4E74C500F43AAA883F42ACBCEFF14C01939CEB970DF1ACD884EE7A0F2`.
+  `49C41F1D72FCD05AAD0701E91BC3694C47E97E13BC1888CC8A2B0C4420CE9F07`.
 - Git has **no configured remote**, so nothing has been pushed. Every commit is
   local only. This must be reported whenever work is called complete.
-- **1.0.5 has been built, smoke-loaded, installed, hash-verified, and launched
-  in the real game to confirm the hooks install. The user has not yet played
-  it.** The next build shown to the user must be **1.0.6** with a matching
+- **1.0.6 has been built, smoke-loaded, installed, hash-verified, and launched
+  in the real game to confirm every hook resolves. The user has not yet played
+  it.** The next build shown to the user must be **1.0.7** with a matching
   commit.
 
 ## User feedback so far
 
-After playing 1.0.4 the user reported: menu haptics are good; footsteps fire
-repeatedly when moving slowly "as if buffered" with no pause during a dodge;
-hitstop is not perceptible; and hits fire on the companion's damage as well as
-the player's. 1.0.5 addresses all four. Nothing in 1.0.5 has been played yet.
+After 1.0.4: menu haptics good; footsteps fired repeatedly when moving slowly
+"as if buffered" with no dodge pause; hitstop imperceptible; hits fired on the
+companion's damage. Fixed in 1.0.5.
+
+After 1.0.5: **footsteps confirmed good.** Hitstop was tanking performance again
+and firing for companion hits; companion gunfire still vibrated; the user wants
+pod *fire* to vibrate but pod *impacts* not to, and hitstop on melee only.
+Addressed in 1.0.6. Nothing in 1.0.6 has been played yet.
+
+The user asked whether a CheatEngine-style whole-clock deceleration would be
+cheaper. It would not: that is exactly what 1.0.5 already did, and it is the
+cause of the frame-rate collapse. See the timing section of the internals doc.
 
 The user runs a real DualSense wirelessly through **DSX beta wireless haptics**,
 not a wired controller. DSX exposes a virtual four-channel 48-kHz DualSense
@@ -73,19 +81,26 @@ play session with no timed test. This is how the footstep names were found.
 
 ### Hitstop
 
-1.0.3 scaled only `QueryPerformanceCounter`. The game also reads `timeGetTime`
-(17 sites) and `GetTickCount` (3 sites), so the frame limiter waited on real
-time while the simulation used the slowed clock — the frame rate collapsed and
-nothing slowed down. All three clocks now come from one virtual timeline.
+Hitstop drives the engine's own `AccelTime` system (`docs/NIER-INTERNALS.md`),
+not the process clock. Two clock-scaling attempts failed, and the second one —
+scaling every clock the game imports, which is what a speedhack does — proved
+the approach is unusable here: NieR paces frames off the same clocks it
+simulates from, so a slowed clock makes the frame limiter wait proportionally
+longer in real time. The frame rate collapses and nothing slows down.
 
-Repeated hits also used to extend the stop indefinitely via `max()`, so with
-hits landing ten times a second against a one-second stop the game never came
-out of it. The end time is now assigned, and `HitstopMinIntervalMs` enforces a
-refractory period that is currently longer than the duration.
+`AccelTime_request(singleton, rate, duration_frames, delay_frames, flags)` is
+the call the game itself uses for slow motion. Durations are in frames at 60 Hz;
+the config still takes milliseconds and converts.
 
-Values are back to the diagnostic 1000 ms at 8% because the user could not
-perceive 130 ms at 35%. Once the effect is confirmed, 130/0.35/240 is the
-suggested production setting; the INI records this.
+Hitstop fires on the melee hit-confirm sound only. Pod round impacts
+(`core_shot_hit`, `core_shot_bullet_hit`) are ignored entirely — they fire for
+the companion's pod as readily as the player's, and an impact is not an action
+the player took.
+
+**The hitstop hook must be installed from the event loop, not at DLL load.** The
+executable is still encrypted when the DLL attaches, so the signature cannot be
+found yet. 1.0.6's first build had exactly this bug and logged "call site was
+not found"; it is installed alongside the sound hook now.
 
 ## Verified without the user playing
 

@@ -60,6 +60,8 @@ Config load_config() {
         L"Haptics", L"FootstepMinIntervalMs", c.footstep_min_interval_ms, path.c_str()));
     c.footstep_min_interval_ms = static_cast<unsigned>(std::clamp(footstep_gap, 0, 1000));
     c.log_sound_names = read_bool(L"Diagnostics", L"LogSoundNames", c.log_sound_names, path);
+    c.pod_fire_enabled = read_bool(L"Haptics", L"PodFireEnabled", c.pod_fire_enabled, path);
+    c.pod_fire_strength = std::clamp(read_float(L"Haptics", L"PodFireStrength", c.pod_fire_strength, path), 0.0f, 1.0f);
     c.enemy_hit_enabled = read_bool(L"Haptics", L"EnemyHitEnabled", c.enemy_hit_enabled, path);
     c.enemy_hit_strength = std::clamp(read_float(L"Haptics", L"EnemyHitStrength", c.enemy_hit_strength, path), 0.0f, 1.0f);
     c.player_hit_enabled = read_bool(L"Haptics", L"PlayerHitEnabled", c.player_hit_enabled, path);

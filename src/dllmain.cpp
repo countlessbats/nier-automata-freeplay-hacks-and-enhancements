@@ -27,14 +27,15 @@ FARPROC real_export(const char* name) {
 
 DWORD WINAPI mod_thread(void*) {
     const Config config = load_config();
-    log_line("NieR Haptics + Hitstop 1.0.5 starting");
-    const bool clock_hooked = config.hitstop_enabled && install_timescale_hook();
+    log_line("NieR Haptics + Hitstop 1.0.6 starting");
+    // The hitstop hook is installed from the event loop instead of here: the
+    // executable's code is still encrypted at DLL load and no signature can be
+    // found until the Steam stub has decrypted it.
     Haptics haptics;
     if (config.haptics_enabled) haptics.start();
     GameEvents events(config, haptics);
     events.run(g_stop);
     haptics.stop();
-    if (clock_hooked) reset_timescale();
     log_line("NieR Haptics + Hitstop stopped");
     return 0;
 }
