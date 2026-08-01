@@ -6,15 +6,22 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.4**, commit `86df7f1`.
+- Installed build: **1.0.5**, commit `c2512de`.
 - Installed DLL SHA-256:
-  `2FCCAEB976893F4602C1E4150B0A815D7119FF62D6994F99016E43F65E3C765A`.
+  `682D7FA4E74C500F43AAA883F42ACBCEFF14C01939CEB970DF1ACD884EE7A0F2`.
 - Git has **no configured remote**, so nothing has been pushed. Every commit is
   local only. This must be reported whenever work is called complete.
-- **1.0.4 has been built, smoke-loaded, installed, hash-verified, and launched
-  in the real game to confirm every hook installs and captures live events. The
-  user has not yet played it.** The next build shown to the user must be
-  **1.0.5** with a matching commit.
+- **1.0.5 has been built, smoke-loaded, installed, hash-verified, and launched
+  in the real game to confirm the hooks install. The user has not yet played
+  it.** The next build shown to the user must be **1.0.6** with a matching
+  commit.
+
+## User feedback so far
+
+After playing 1.0.4 the user reported: menu haptics are good; footsteps fire
+repeatedly when moving slowly "as if buffered" with no pause during a dodge;
+hitstop is not perceptible; and hits fire on the companion's damage as well as
+the player's. 1.0.5 addresses all four. Nothing in 1.0.5 has been played yet.
 
 The user runs a real DualSense wirelessly through **DSX beta wireless haptics**,
 not a wired controller. DSX exposes a virtual four-channel 48-kHz DualSense
@@ -34,92 +41,84 @@ conclude a signature is wrong because an offline scan of the shipped executable
 misses it. Use `tools/dump_image.exe` to capture the decrypted runtime image and
 `analysis/nier.py` to work with it.
 
-## What 1.0.4 changed
+## How the mod decides what to do
 
-### Footsteps and menus now follow real sound events
+### Everything is driven by the game's own sound events
 
-`src/sound_hook.cpp` locates the game's Wwise post-event family and places
-breakpoints on all four descriptor-taking variants. Every posted sound yields
-its name and id, which `game_events.cpp` classifies:
+`src/sound_hook.cpp` locates the Wwise post-event family and breakpoints all
+four descriptor-taking variants, so every posted sound yields its name and id.
+`game_events.cpp` classifies those names. This replaced the movement-distance
+footstep heuristic and the XInput menu-state inference; both are gone.
 
-- names containing `foot`, or `step` without `stepup`, are footsteps;
-- `core_*` / `se_*` names containing `cursor`, `disicion`, `decide`, `cancel`,
-  `error` and similar are menu actions.
+**The `_pl` suffix is the key discriminator.** The character sound player
+appends `_pl` for the character the player is controlling and falls back to the
+bare name for companions and enemies, so:
 
-This replaces the movement-distance footstep heuristic and the XInput menu-state
-inference, both of which are gone. Menu pulses can no longer fire before a menu
-exists, and footstep cadence is the game's own.
+- `pl0000_step_walk_L_pl` is 2B, whom the player controls — fires.
+- `pl0200_step_walk_L` is 9S as companion — ignored.
+- `em0000_step_L` is a machine — ignored.
 
-`FootstepRequireMoving` gates footstep sounds against the player's real
-controller speed (behavior + `0x1434`) so other characters' footsteps do not
-buzz while the player stands still. The trigger is still the sound; this is only
-a filter.
+The model prefix is learned from any `_pl` sound, so it follows story sections
+that swap the playable character. Footstep names also state the foot and the
+gait, so left/right and walk/run come from the game rather than being inferred.
 
-`LogSoundNames=1` records each distinct event name once, so unmapped events can
-be identified from an ordinary play session with no timed test.
+Outgoing hits come from the game's own hit-confirm sounds
+(`core_small_sword_hit`, `core_shot_hit`, `core_shot_bullet_hit`), because a
+health decrease in the entity list is equally true when a companion lands the
+blow. Entity polling now exists only to notice the player taking damage.
+
+`LogSoundNames=1` records each distinct event name once and marks the ones
+attributed to the player, so unmapped events can be identified from an ordinary
+play session with no timed test. This is how the footstep names were found.
 
 ### Hitstop
 
 1.0.3 scaled only `QueryPerformanceCounter`. The game also reads `timeGetTime`
 (17 sites) and `GetTickCount` (3 sites), so the frame limiter waited on real
 time while the simulation used the slowed clock — the frame rate collapsed and
-nothing slowed down, exactly as reported. All three clocks now come from one
-virtual timeline.
+nothing slowed down. All three clocks now come from one virtual timeline.
 
-Repeated hits also used to extend the stop indefinitely via `max()`. With hits
-landing roughly ten times a second against a one-second stop, the game never
-came out of it. `HitstopMinIntervalMs` now enforces a refractory period and the
-end time is assigned rather than extended.
+Repeated hits also used to extend the stop indefinitely via `max()`, so with
+hits landing ten times a second against a one-second stop the game never came
+out of it. The end time is now assigned, and `HitstopMinIntervalMs` enforces a
+refractory period that is currently longer than the duration.
 
-Diagnostic values (1000 ms at 8%) are replaced with 130 ms at 35%.
+Values are back to the diagnostic 1000 ms at 8% because the user could not
+perceive 130 ms at 35%. Once the effect is confirmed, 130/0.35/240 is the
+suggested production setting; the INI records this.
 
-### Haptic waveforms
+## Verified without the user playing
 
-Footsteps are a short exponentially damped tap at 95 Hz instead of a 50 ms
-low-frequency thud, with default strength lowered from 0.08 to 0.035. Menus have
-three distinct effects — tick, confirm, cancel — instead of a left/right pair.
-
-## Verified in the live game
-
-The 1.0.4 launch produced:
-
-```text
-Hitstop: virtual clock installed over 3 game time sources
-Sound hook: post-event entry at NieRAutomata.exe+0x140200
-Sound hook: watching 4 post-event entries
-Outgoing hits: armed 5 health-subtraction instructions
-Sound: core_title_wsh (id 0x073E9868) [-]
-Sound: se_movie_in (id 0xFB50D662) [-]
-```
-
-The resolved post-event address matched the offline analysis exactly, and all
-six captured event ids reproduce from the documented FNV-1 hash of their names.
+- The post-event address resolved at runtime matches the offline analysis
+  exactly, and all captured event ids reproduce from the documented FNV-1 hash.
+- The shipped classifier was replayed against the full list of names captured
+  from a real session: it fires on 2B's four footstep events, the three
+  hit-confirm sounds and the menu sounds, and suppresses all seven companion and
+  machine footstep events.
 
 ## Not yet confirmed by play
 
-1. Whether footstep sound names actually contain `foot` or `step`. The names
-   live in the packed CPK data, not the executable, so they could not be read
-   offline. If no footsteps fire, read the `Sound:` lines in the log from a
-   session with walking and extend `classify()` in `game_events.cpp`; the log
-   now makes this a single quick pass with no timed test.
-2. Whether full clock virtualization produces visible slow motion. If the frame
-   rate still suffers, the next lead is the engine's own delta time rather than
-   a larger clock scale — do not simply lengthen the duration.
-3. Whether `behavior + 0x1434` is really the controller speed. The log prints
-   one sample (`player controller speed reads …`) the first time it exceeds 0.5.
-   If that value looks wrong, set `FootstepRequireMoving=0` to bypass the gate.
+1. Whether clock virtualization produces visible slow motion. If the frame rate
+   still suffers instead, the next lead is the engine's own delta time — do not
+   simply lengthen the duration or lower the speed further.
+2. Whether the hit-confirm sounds are exclusive to the player's attacks. They
+   are `core_` feedback sounds, which is why they were chosen, but if hits still
+   register for the companion, the log will show which name fired.
+3. Whether footsteps survive surfaces or areas where the `_pl` variant may not
+   exist in the sound bank. If footsteps go silent, the log will show a
+   `pl0000_step_*` name without the suffix; set `FootstepPlayerOnly=0` as an
+   immediate workaround.
 4. Whether menu classification covers nested menus and the pause screen.
 
 ## Known risks
 
-`damage_hook.cpp` still uses INT3 breakpoints with a vectored handler on five
-health-subtraction instructions, leaving those pages RWX. `sound_hook.cpp` uses
-the same technique with its own handler; the two coexist because each ignores
-addresses it does not own and each tracks its single-step state in thread-local
-storage. Both are proven to work but neither is production-grade. A rewrite onto
-a real mid-function hook library such as SafetyHook is the eventual fix.
+`sound_hook.cpp` uses INT3 breakpoints with a vectored exception handler, which
+leaves those pages RWX. It is proven to work but is not production-grade; a
+rewrite onto a real mid-function hook library such as SafetyHook is the eventual
+fix. 1.0.5 deleted `damage_hook.cpp`, which used the same technique on five
+health-subtraction instructions, so this is now the only such hook.
 
-The sound-hook breakpoints sit on hot functions. Every posted sound costs two
+The breakpoints sit on hot functions and every posted sound costs two
 exceptions. Observed rates are low enough not to matter, but a scene that posts
 sounds far more aggressively is the thing to watch if frame pacing regresses.
 
@@ -129,9 +128,9 @@ Native x64 `dinput8.dll` proxy loaded from the game directory.
 
 - `src/dllmain.cpp` — proxy forwarding and the mod worker thread.
 - `src/haptics.cpp` — WASAPI PCM stream to DualSense actuator channels 3/4.
-- `src/sound_hook.cpp` — Wwise post-event observation (new in 1.0.4).
+- `src/sound_hook.cpp` — Wwise post-event observation; the source of
+  footstep, menu and outgoing-hit events.
 - `src/game_events.cpp` — entity/player polling, sound classification, dispatch.
-- `src/damage_hook.cpp` — outgoing-damage breakpoints.
 - `src/timescale.cpp` — virtual clock across every imported time source.
 - `src/config.cpp` / `.hpp` — INI configuration.
 - `tools/dump_image.cpp` — external decrypted-image dumper.
