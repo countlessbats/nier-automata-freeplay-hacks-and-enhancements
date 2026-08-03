@@ -41,12 +41,17 @@ if ((Test-Path -LiteralPath $destinationDll) -and -not (Test-Path -LiteralPath $
 }
 
 foreach ($name in @('dinput8.dll','NierHaptics.ini','Uninstall-NierHaptics.ps1')) {
+    $destination = Join-Path $Target $name
+    # The settings file belongs to whoever is playing. Upgrades leave an
+    # existing one alone; new keys fall back to their built-in defaults, so a
+    # settings file from an older build stays valid.
+    if ($name -eq 'NierHaptics.ini' -and (Test-Path -LiteralPath $destination)) { continue }
     $source = Join-Path $Stage $name
     $temporary = Join-Path $Target ($name + '.nierhaptics-new')
     Copy-Item -LiteralPath $source -Destination $temporary -Force
-    Move-Item -LiteralPath $temporary -Destination (Join-Path $Target $name) -Force
+    Move-Item -LiteralPath $temporary -Destination $destination -Force
 }
-@{ version='1.0.42'; dllHash=$sourceHash; backup=(Test-Path -LiteralPath $backup) } |
+@{ version='1.0.43'; dllHash=$sourceHash; backup=(Test-Path -LiteralPath $backup) } |
     ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 if ($Stage -like (Join-Path $Target '.nierhaptics-stage-*')) {
     Remove-Item -LiteralPath $Stage -Recurse -Force

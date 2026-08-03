@@ -783,3 +783,29 @@ boot-time and menu-time enumeration: **the game reads every slot into memory
 before the save list is drawn.** Choosing Start Game therefore does not open a
 file, which is why hooking `CreateFileW` never caught the moment of the load and
 why the load path has to be driven through the in-memory API instead.
+
+### Driving a load
+
+The save system is one state machine, its state word at `+0x1421EF4`, shared by
+the load driver at `+0x9C7B70` and the save driver at `+0x9C7FC0`. A trace of a
+normal load reads:
+
+```
+0 -> 1 -> 2 -> 3 -> 4 -> 0        the save list is scanned
+0 -> 10 -> 11 -> 20  (x4)         each slot is read; staging gains 09025954
+0 -> 1 -> 0                       the chosen slot is applied; live gains it
+```
+
+State 1 is the completion step. It polls an asynchronous read through the handle
+at `+0x14220B0`: zero means finished, one means still running. Only on zero does
+it check the staging header for `0x5954` and a version of `0x9xx`, then run
+`memcpy(+0x145BF60, +0x14220C0, 0x399C0)`, which is the moment a save becomes
+live.
+
+Filling the staging buffer and setting state 1 is therefore not enough. With no
+read outstanding the poll answers "busy" forever and the state machine parks at
+1. What remains is issuing the read itself, which is what states 10, 11 and 20
+do, from the slot index held in the request object.
+
+On disk a slot file is `0x399CC` bytes: a twelve byte wrapper followed by the
+`0x399C0` block, so the header the game checks sits at offset `0xC`.

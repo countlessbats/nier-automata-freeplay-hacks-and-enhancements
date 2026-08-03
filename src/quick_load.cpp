@@ -16,6 +16,10 @@ constexpr unsigned kStagingRva = 0x14220C0;  // the buffer a slot is read into
 constexpr unsigned kLiveRva = 0x145BF60;     // the live game data block
 constexpr unsigned kBlockSize = 0x399C0;
 constexpr unsigned short kMagic = 0x5954;
+// On disk the block carries a twelve byte wrapper ahead of it, so a slot file
+// is twelve bytes longer than the block the game keeps in memory and its header
+// starts at that offset.
+constexpr unsigned kFileHeader = 0xC;
 constexpr int kApplyState = 1;
 
 // Resolved at run time so the proxy DLL gains no new import. The Documents
@@ -57,13 +61,13 @@ bool read_slot(const std::wstring& path, std::vector<unsigned char>& out) {
     HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
-    out.assign(kBlockSize, 0);
+    out.assign(kFileHeader + kBlockSize, 0);
     DWORD read = 0;
-    const bool ok = ReadFile(file, out.data(), kBlockSize, &read, nullptr) != 0;
+    const bool ok = ReadFile(file, out.data(), kFileHeader + kBlockSize, &read, nullptr) != 0;
     CloseHandle(file);
     // A short read means the file is not the block this build expects, and
     // copying it over the live data would be worse than doing nothing.
-    return ok && read == kBlockSize;
+    return ok && read == kFileHeader + kBlockSize;
 }
 
 }  // namespace
@@ -98,14 +102,15 @@ bool try_quick_load() {
         done = true;
         return true;
     }
-    if (*reinterpret_cast<unsigned short*>(data.data()) != kMagic) {
+    const unsigned char* block = data.data() + kFileHeader;
+    if (*reinterpret_cast<const unsigned short*>(block) != kMagic) {
         log_line("Quick load: slot %d has header %04X, expected %04X; skipping",
-                 slot, *reinterpret_cast<unsigned short*>(data.data()), kMagic);
+                 slot, *reinterpret_cast<const unsigned short*>(block), kMagic);
         done = true;
         return true;
     }
 
-    memcpy(staging, data.data(), kBlockSize);
+    memcpy(staging, block, kBlockSize);
     *state = kApplyState;
     done = true;
     log_line("Quick load: staged slot %d and set the save system to state %d",
