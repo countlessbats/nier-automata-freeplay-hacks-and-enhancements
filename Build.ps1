@@ -24,6 +24,7 @@ $sources = @(
     (Join-Path $root 'src\game_events.cpp'),
     (Join-Path $root 'src\chip_keeper.cpp'),
     (Join-Path $root 'src\easy_chips.cpp'),
+    (Join-Path $root 'src\save_probe.cpp'),
     (Join-Path $root 'src\overlay.cpp'),
     (Join-Path $root 'src\state_system.cpp'),
     (Join-Path $imgui 'imgui.cpp'),
@@ -37,7 +38,7 @@ $sources = @(
 $includes = '/I"{0}" /I"{1}"' -f $imgui, $imguiBackends
 $output = Join-Path $dist 'dinput8.dll'
 $def = Join-Path $root 'src\dinput8.def'
-$command = '"{0}" -arch=amd64 -host_arch=amd64 >nul && cl /nologo /std:c++20 /O2 /EHsc /MD /LD /DUNICODE /D_UNICODE /DNOMINMAX {4} {1} /link /OUT:"{2}" /DEF:"{3}" Ole32.lib Propsys.lib Setupapi.lib d3d11.lib dxgi.lib' -f `
+$command = '"{0}" -arch=amd64 -host_arch=amd64 >nul && cl /nologo /std:c++20 /O2 /EHsc /MD /LD /DUNICODE /D_UNICODE /DNOMINMAX {4} {1} /link /OUT:"{2}" /DEF:"{3}" Ole32.lib Psapi.lib Propsys.lib Setupapi.lib d3d11.lib dxgi.lib' -f `
     $developerShell, ($sources -join ' '), $output, $def, $includes
 & cmd.exe /d /s /c $command
 if ($LASTEXITCODE -ne 0) { throw "Native build failed with exit code $LASTEXITCODE." }

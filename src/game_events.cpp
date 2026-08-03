@@ -1,6 +1,7 @@
 #include "game_events.hpp"
 #include "chip_keeper.hpp"
 #include "easy_chips.hpp"
+#include "save_probe.hpp"
 #include "config.hpp"
 #include "sound_hook.hpp"
 #include "overlay.hpp"
@@ -323,8 +324,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 // shape of "continue from slot N". Read-only for now: the list
                 // is enumerated so the object can be confirmed before anything
                 // is called through it.
-                scan_state_objects();
-                next_state_scan = GetTickCount64() + 15000;
+                install_save_probe();
             }
             // Same timing constraint as the sound hook: the code signature
             // only exists once the executable has decrypted itself.
