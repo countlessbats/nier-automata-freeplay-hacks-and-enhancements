@@ -262,6 +262,12 @@ void draw_panel() {
     ImGui::TextDisabled("Turning this off leaves equipped chips alone.");
 
     ImGui::Spacing();
+    if (ImGui::Checkbox("Jump straight into the newest save",
+                        &g_settings.auto_load_last_save))
+        write_bool(L"Gameplay", L"AutoLoadLastSave", g_settings.auto_load_last_save);
+    ImGui::TextDisabled("Applies on the next launch; skips the title menu entirely.");
+
+    ImGui::Spacing();
     if (ImGui::Button("Reload from file")) { g_settings = load_config(); }
     ImGui::End();
 }

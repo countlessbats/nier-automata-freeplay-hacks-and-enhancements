@@ -316,17 +316,11 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         if (list_global && !sound_hook_attempted) {
             sound_hook_attempted = true;
             sound_hook_active = install_sound_hook();
-            // First half of loading a save without synthetic input: reach the
-            // game's own state system and confirm the Continue category is
-            // there. Read-only; nothing is called yet.
-            if (config_.auto_load_last_save) {
-                find_scene_state_system();
-                // ContinueState's script export takes one int, which is the
-                // shape of "continue from slot N". Read-only for now: the list
-                // is enumerated so the object can be confirmed before anything
-                // is called through it.
-                install_save_probe();
-            }
+            // Read-only, and deliberately not tied to whether quick load is
+            // switched on: identifying the request a real Start Game issues is
+            // exactly the work that has to happen while quick load is off.
+            if (config_.log_save_state) install_save_probe();
+            if (config_.auto_load_last_save) find_scene_state_system();
             // Same timing constraint as the sound hook: the code signature
             // only exists once the executable has decrypted itself.
             if (config_.keep_chips_on_death) install_chip_keeper();

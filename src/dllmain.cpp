@@ -27,7 +27,7 @@ FARPROC real_export(const char* name) {
 
 DWORD WINAPI mod_thread(void*) {
     const Config config = load_config();
-    log_line("NieR Haptics 1.0.46 starting");
+    log_line("NieR Haptics 1.0.49 starting");
     if (config.overlay_enabled) install_overlay();
     Haptics haptics;
     if (config.haptics_enabled) haptics.start();

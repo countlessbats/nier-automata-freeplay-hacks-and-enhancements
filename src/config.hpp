@@ -65,6 +65,10 @@ struct Config {
     // Writes every distinct sound-event name the game posts to the log, so new
     // events can be mapped without a timed in-game test.
     bool log_sound_names{true};
+    // Logs every change to the save system's request, step and slot words.
+    // Read-only, and the only way to learn which request loads a slot without
+    // calling codes at random: several of them write to save files.
+    bool log_save_state{true};
     // Read-only probe that finds the air-jump counter from real play.
     bool probe_jump_fields{true};
 };

@@ -14,19 +14,22 @@ namespace {
 constexpr unsigned kRequestRva = 0x1421EF0;  // pending operation; non-zero means busy
 constexpr unsigned kStateRva = 0x1421EF4;    // the step both drivers switch on
 constexpr unsigned kSlotRva = 0x1421EF8;     // which slot the operation applies to
-// The save system takes numbered requests. Two of its entry points take a slot
-// and were tested against a real save:
+// The save system takes numbered requests through small entry points that
+// validate their arguments and refuse to start while another request is
+// pending. Request 4 is the load, confirmed by watching a real Start Game:
+// request goes 0 -> 4, the step runs 0 -> 1 -> 0, and the live block picks up
+// the save's header on the way through.
 //
-//   +0x9C9330  request 11  reads a slot into the staging buffer. Harmless, but
-//                          it stops there; the live block is never touched.
-//   +0x9C93A0  request  6  WRITES the live block to the slot. This is save, not
-//                          load, and it overwrote a real save file when tried.
-//                          Never call it looking for a load.
+// +0x9C6250 is its public entry: it takes the slot in ecx, rejects anything at
+// or past 4, checks the system is idle, then sets request 4 and the slot. It is
+// the same call the menu makes, so the game does the read, the validation and
+// the copy itself.
 //
-// Which request loads a slot into the running game is still unknown, so nothing
-// is issued here yet. It has to be read off a real Start Game rather than
-// guessed at, because half the codes in this table destroy data.
-constexpr unsigned kRequestSlotReadRva = 0x9C9330;
+// Two neighbours in the same table are worth naming so they are never mistaken
+// for this one. +0x9C9330 (request 11) only reads a slot into the staging
+// buffer. +0x9C93A0 (request 6) WRITES the slot from the live block: it is
+// save, not load, and it overwrote a real save file when tried.
+constexpr unsigned kLoadSlotRva = 0x9C6250;
 constexpr unsigned kStagingRva = 0x14220C0;  // the buffer a slot is read into
 constexpr unsigned kLiveRva = 0x145BF60;     // the live game data block
 constexpr unsigned kBlockSize = 0x399C0;
@@ -121,9 +124,9 @@ bool try_quick_load() {
         return true;
     }
 
-    (void)kRequestSlotReadRva;
+    reinterpret_cast<void(*)(int)>(base + kLoadSlotRva)(slot);
     done = true;
-    log_line("Quick load: slot %d is ready, but the load request is not identified "
-             "yet; doing nothing", slot);
+    log_line("Quick load: asked the game to load slot %d (request %d)", slot,
+             *reinterpret_cast<volatile int*>(base + kRequestRva));
     return true;
 }

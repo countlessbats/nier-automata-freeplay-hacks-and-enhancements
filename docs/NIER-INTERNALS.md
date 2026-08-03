@@ -840,3 +840,23 @@ Request 14 is the title screen's own enumeration of all four slots.
 Which request loads a slot into the running game is still open. It should be
 read off a real Start Game with the request word under observation, not guessed
 at: half of these codes write.
+
+### Loading a slot
+
+Request 4 is the load, and `+0x9C6250` is its public entry point:
+
+```
+loadSlot(int slot)   // slot in ecx
+    rejects slot >= 4
+    refuses to start unless the system is idle
+    sets request 4, step 0, and the slot
+```
+
+Calling it is enough. The game issues its own read, validates the header and
+copies the block into the live data, exactly as choosing Start Game does. A real
+Start Game and this call produce the same trace: request `0 -> 4`, step
+`0 -> 1 -> ... -> 0`, and the live block picking up `09025954` on the way.
+
+Quick load waits for the title screen to finish its own enumeration (request 14,
+which leaves the staging header in place) before calling, and does nothing if the
+live block already holds a save.
