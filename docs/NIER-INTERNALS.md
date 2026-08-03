@@ -559,3 +559,39 @@ whether `+0x450` really is the highlighted index and which index Continue holds.
    than option 1 and removes the entire risk of landing on New Game.
 
 Either removes the reason `AutoLoadLastSave` defaults to off.
+
+
+### The state system is reachable; `@Continue` is not a token category
+
+`src/state_system.cpp` walks the `hap` token category list and works. Rather
+than depend on one instruction sequence, it scans writable sections for an
+object shaped like a `TokenCategory` whose name reads `GlobalPhase`, then walks
+`next`. Confirmed live:
+
+| Category | Address |
+| --- | --- |
+| `GlobalPhase` | `+0xF2B048` |
+| `SubPhase` | `+0xF2A900` |
+| `Phase` | `+0xF2A8C8` |
+| `GlobalRoom` | `+0xF2A680` |
+| `Room` | `+0xF2A328` |
+| `Grid` | `+0xF29D40` |
+| `Hacking` | `+0xF04CC8` |
+| `@SceneState` | `+0xFC23B0` |
+| `Quest` | `+0xF04620` |
+
+Layout confirmed by this working: name pointer at `+0x10`, next at `+0x18`,
+object stride `0x20`.
+
+**`@Continue` is not among them**, so the load path is not a token category
+lookup. The string at `0xC3FBF0` referenced from `0xBFC50` is something else —
+possibly a scene-state name rather than a category, or registered by a system
+that is not running at the title screen.
+
+The next thing to try is `@SceneState`, which *is* present and is the system
+AutomataMP drives: `SceneStateSystem` sits at the category address minus 0x40
+and exposes `has`, `set` and `reset`, each taking a `SceneStateName` that is
+only a CRC32 of a string. If continuing is expressed as a scene state, setting
+it is a single call with no synthetic input. Enumerating which scene states
+exist, or watching which one flips when Continue is chosen by hand, would
+identify it.

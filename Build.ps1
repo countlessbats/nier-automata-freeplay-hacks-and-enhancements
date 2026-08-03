@@ -24,6 +24,7 @@ $sources = @(
     (Join-Path $root 'src\game_events.cpp'),
     (Join-Path $root 'src\chip_keeper.cpp'),
     (Join-Path $root 'src\overlay.cpp'),
+    (Join-Path $root 'src\state_system.cpp'),
     (Join-Path $imgui 'imgui.cpp'),
     (Join-Path $imgui 'imgui_draw.cpp'),
     (Join-Path $imgui 'imgui_tables.cpp'),

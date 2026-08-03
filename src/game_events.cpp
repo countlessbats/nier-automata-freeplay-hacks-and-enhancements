@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include "sound_hook.hpp"
 #include "overlay.hpp"
+#include "state_system.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -293,6 +294,11 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         if (list_global && !sound_hook_attempted) {
             sound_hook_attempted = true;
             sound_hook_active = install_sound_hook();
+            // First half of loading a save without synthetic input: reach the
+            // game's own state system and confirm the Continue category is
+            // there. Read-only; nothing is called yet.
+            if (config_.auto_load_last_save)
+                find_token_category("@Continue", true);
             // Same timing constraint as the sound hook: the code signature
             // only exists once the executable has decrypted itself.
             if (config_.keep_chips_on_death) install_chip_keeper();
