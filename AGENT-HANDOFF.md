@@ -6,9 +6,9 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.23**, commit `5872cf3`.
+- Installed build: **1.0.24**, commit pending.
 - Installed DLL SHA-256:
-  `A47958D68749FEDC854DDEA56B8DAD2BD56368E2077A9107139F48F885445BB4`.
+  `2214D462F40F9EF8A943540F80A1159C8133446FF9DB18B4861F89A5037A7262`.
 - Remote: `origin` ->
   https://github.com/countlessbats/nier-automata-freeplay-hacks-and-enhancements
   (public). Push every commit before calling work complete.
@@ -25,8 +25,11 @@
   `FootstepsSprintOnly` therefore drops only walk.
 - **The event names cannot separate jogging from sprinting** — both are
   `_step_run_`. `FootstepMinSpeed` gates on the game's own movement speed
-  (`Pl0000 + 0x1434`) instead, and defaults to 0 (off) until a threshold is
-  calibrated. Each footstep that fires logs its speed for exactly that purpose. Combat suppression was removed: the game's
+  (`Pl0000 + 0x1434`). Measured from real play: running peaks at **1000-1025**,
+  sprinting at **1082-1115**, so the default sits at 1050. Those bands are only
+  ~6% apart, so treat the threshold as something the user tunes by feel, not a
+  constant. The field intermittently reads 0.0 when polled mid-update, so the
+  gate uses a 250 ms peak hold rather than the instantaneous value. Combat suppression was removed: the game's
   battle flag only tracks what the battle music tracks, so wildlife never
   counted, and lock-on stuck on after a death. The battle flag itself is still
   documented in the internals doc if it is ever wanted.

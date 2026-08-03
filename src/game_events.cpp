@@ -233,6 +233,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     ULONGLONG last_footstep{};
     unsigned footsteps_logged{};
     float player_speed{};
+    float speed_peak{};
+    ULONGLONG speed_peak_time{};
     ULONGLONG last_player_attack{};
     ULONGLONG last_jump_sound{};
 
@@ -320,7 +322,17 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                     }
                     float speed{};
                     if (safe_read(behavior + kControllerSpeed, speed) && std::isfinite(speed) &&
-                        speed >= 0.0f && speed < 100000.0f) player_speed = speed;
+                        speed >= 0.0f && speed < 100000.0f) {
+                        player_speed = speed;
+                        // The field occasionally reads zero when the poll lands
+                        // mid-update, which would drop a genuine step, so the
+                        // gate uses the peak of the last fraction of a second.
+                        const ULONGLONG now = GetTickCount64();
+                        if (speed >= speed_peak || now - speed_peak_time > 250) {
+                            speed_peak = speed;
+                            speed_peak_time = now;
+                        }
+                    }
                     if (safe_read(behavior + 0x50, player_position) &&
                         std::isfinite(player_position.x) && std::isfinite(player_position.y) &&
                         std::isfinite(player_position.z)) have_player = true;
@@ -389,7 +401,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 if (config_.footsteps_sprint_only && contains(lowered, "_walk")) break;
                 // Which leaves speed as the only thing that separates jogging
                 // from sprinting, since the game gives both the same event name.
-                if (config_.footstep_min_speed > 0.0f && player_speed < config_.footstep_min_speed)
+                if (config_.footstep_min_speed > 0.0f && speed_peak < config_.footstep_min_speed)
                     break;
                 const ULONGLONG now = GetTickCount64();
                 if (now - last_footstep < config_.footstep_min_interval_ms) break;
@@ -407,7 +419,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 // filter can be checked against real play rather than assumed.
                 if (footsteps_logged < 30) {
                     ++footsteps_logged;
-                    log_line("Footstep: %-24s speed %.1f", event.name, player_speed);
+                    log_line("Footstep: %-24s speed %.1f (peak %.1f)", event.name,
+                             player_speed, speed_peak);
                 }
                 break;
             }

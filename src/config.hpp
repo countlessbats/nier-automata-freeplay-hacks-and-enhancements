@@ -23,7 +23,10 @@ struct Config {
     // sprinting share an event. Its own movement speed is the only thing that
     // tells them apart. Zero disables the gate until a threshold is calibrated
     // from the speeds the log reports.
-    float footstep_min_speed{0.0f};
+    // Measured: ordinary running peaks around 1000-1025, sprinting around
+    // 1082-1115, so the threshold sits between them. Only ~6% apart, so this is
+    // meant to be tuned live rather than trusted blindly; 0 disables the gate.
+    float footstep_min_speed{1050.0f};
     bool footstep_require_moving{true};
     unsigned footstep_min_interval_ms{70};
     bool enemy_hit_enabled{true};
