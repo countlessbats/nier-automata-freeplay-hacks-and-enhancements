@@ -69,6 +69,9 @@ struct Config {
     // Read-only, and the only way to learn which request loads a slot without
     // calling codes at random: several of them write to save files.
     bool log_save_state{true};
+    // Dumps the camera manager's fields on F9, to identify what pulls the
+    // camera back to its resting angle.
+    bool log_camera_fields{true};
     // Read-only probe that finds the air-jump counter from real play.
     bool probe_jump_fields{true};
 };

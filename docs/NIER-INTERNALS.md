@@ -860,3 +860,26 @@ Start Game and this call produce the same trace: request `0 -> 4`, step
 Quick load waits for the title screen to finish its own enumeration (request 14,
 which leaves the staging header in place) before calling, and does nothing if the
 live block already holds a save.
+
+## The camera
+
+`setCamReset` at `+0x4EA640` loads `+0x1020870` with a `lea` rather than reading
+a pointer from it, so the camera manager is a static object at that address.
+
+Camera behaviour is configured from a `CameraParam` block deserialized from BXM
+at `+0x3946E0` and `+0x392FA0`. The parsers are reached virtually, so the field
+names are readable but the object they fill is not reachable statically. Field
+offsets within their struct, from the parse order:
+
+| Field | Offset | Type |
+| --- | --- | --- |
+| `camReset_` | `+0xB8` | bool |
+| `fixCamFront_` | `+0x298` | bool |
+| `fixCamFrontOffsetAngle_` | `+0x29C` | float |
+| `fixCamFrontInterpAccel_` | — | float |
+| `fixCamFrontInterpTime_` | — | float |
+| `cameraInterpEnable` | `+0x590` | bool |
+
+`fixCamFront_` and its interpolation pair are the likely drivers of the camera
+returning to a resting angle. Which one actually does it is being read off real
+play with the F9 dump rather than guessed at.
