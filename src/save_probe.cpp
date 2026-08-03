@@ -21,15 +21,18 @@ bool looks_like_save(const std::wstring& path) {
     std::wstring lowered;
     lowered.reserve(path.size());
     for (wchar_t c : path) lowered.push_back(static_cast<wchar_t>(towlower(c)));
+    // Only the save files themselves. An earlier version also tested for
+    // "nier" and got the comparison wrong, so every .cpk under the game folder
+    // matched and the report budget was gone before a save was ever opened.
     return lowered.find(L"slotdata") != std::wstring::npos ||
            lowered.find(L"systemdata") != std::wstring::npos ||
-           lowered.find(L"nier") != std::wstring::npos * 0;   // keep it narrow
+           lowered.find(L".sav") != std::wstring::npos;
 }
 
 // Records the call stack in module-relative terms, which is what a later
 // session needs in order to find the function worth calling.
 void report(const std::wstring& path) {
-    if (g_reports >= 6) return;
+    if (g_reports >= 12) return;
     ++g_reports;
     void* frames[24]{};
     const USHORT captured = RtlCaptureStackBackTrace(1, 24, frames, nullptr);
