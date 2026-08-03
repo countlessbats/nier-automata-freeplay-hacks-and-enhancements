@@ -2,6 +2,7 @@
 #include "chip_keeper.hpp"
 #include "config.hpp"
 #include "sound_hook.hpp"
+#include "overlay.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -250,6 +251,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     bool left_foot{};
     ULONGLONG last_footstep{};
     unsigned footsteps_logged{};
+    bool auto_load_started{};
     float player_speed{};
     uint32_t animation_state{};
     ULONGLONG speed_hold_time{};
@@ -412,6 +414,15 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             if (!event.name[0]) continue;
             const std::string lowered = lowercase(event.name);
             const SoundKind kind = classify(lowered);
+            // `core_title_wsh` is the title screen announcing itself, which is
+            // the only reliable moment to start walking the menu.
+            if (config_.auto_load_last_save && !auto_load_started &&
+                contains(lowered, "title_wsh")) {
+                auto_load_started = true;
+                log_line("Auto-load: title screen reached; queueing %u confirm press(es) in %u ms",
+                         config_.auto_load_presses, config_.auto_load_delay_ms);
+                request_menu_confirm(config_.auto_load_presses, config_.auto_load_delay_ms);
+            }
             if (is_attack_sound(lowered, player_prefix)) last_player_attack = GetTickCount64();
             if (config_.probe_jump_fields && is_jump_sound(lowered, player_prefix))
                 last_jump_sound = GetTickCount64();

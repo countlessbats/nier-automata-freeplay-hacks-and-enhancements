@@ -161,11 +161,56 @@ SHORT WINAPI get_key_state_hook(int key) {
     return g_get_key_state(key);
 }
 
+// Synthetic confirm presses for the title menu. These ride on the same XInput
+// call the game already polls, so the game cannot tell them from a real press.
+// Anything the player does cancels the rest of the sequence, because a queued
+// press arriving while they are navigating by hand is how a menu automation
+// picks the wrong entry.
+volatile LONG g_confirm_remaining{};
+ULONGLONG g_confirm_next_time{};
+unsigned g_confirm_gap_ms = 700;
+bool g_confirm_holding{};
+
+void queue_confirm(unsigned presses, unsigned first_delay_ms) {
+    g_confirm_next_time = GetTickCount64() + first_delay_ms;
+    g_confirm_holding = false;
+    InterlockedExchange(&g_confirm_remaining, static_cast<LONG>(presses));
+}
+
 DWORD WINAPI xinput_get_state_hook(DWORD user, void* state) {
     const DWORD result = g_xinput_get_state(user, state);
-    if (g_visible && result == ERROR_SUCCESS && state) {
+    if (result != ERROR_SUCCESS || !state) return result;
+    if (g_visible) {
         // Keep the packet number, blank the buttons and sticks.
         memset(static_cast<char*>(state) + 4, 0, 12);
+        return result;
+    }
+    if (g_confirm_remaining > 0) {
+        auto* buttons = reinterpret_cast<WORD*>(static_cast<char*>(state) + 4);
+        auto* sticks = reinterpret_cast<char*>(state) + 8;
+        const bool player_acted = *buttons != 0 && !g_confirm_holding;
+        bool stick_moved = false;
+        for (int i = 0; i < 8; ++i) if (sticks[i] != 0) stick_moved = true;
+        if (player_acted || stick_moved) {
+            InterlockedExchange(&g_confirm_remaining, 0);
+            log_line("Auto-load: cancelled, the player is using the pad");
+            return result;
+        }
+        const ULONGLONG now = GetTickCount64();
+        if (g_confirm_holding) {
+            if (now >= g_confirm_next_time) {
+                g_confirm_holding = false;
+                g_confirm_next_time = now + g_confirm_gap_ms;
+                InterlockedDecrement(&g_confirm_remaining);
+            } else {
+                *buttons |= 0x1000;   // XINPUT_GAMEPAD_A
+            }
+        } else if (now >= g_confirm_next_time) {
+            g_confirm_holding = true;
+            g_confirm_next_time = now + 80;   // hold long enough to register
+            *buttons |= 0x1000;
+            log_line("Auto-load: confirm press (%ld remaining)", g_confirm_remaining);
+        }
     }
     return result;
 }
@@ -530,6 +575,12 @@ bool install_overlay() {
 }
 
 bool overlay_is_open() { return g_visible; }
+
+void request_menu_confirm(unsigned presses, unsigned first_delay_ms) {
+    queue_confirm(presses, first_delay_ms);
+}
+
+bool menu_confirm_pending() { return g_confirm_remaining > 0; }
 
 void hook_direct_input(void* direct_input) {
     if (!direct_input) return;

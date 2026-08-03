@@ -6,9 +6,9 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.28**, commit `23086a5`.
+- Installed build: **1.0.29**, commit pending.
 - Installed DLL SHA-256:
-  `C204D6BB9482EE5EDB6685EC5FC05005DB0ADE5533FBB67D337976761FC150C3`.
+  `FF9EE49CB2E99484608BA79C3DFB4530955F5FBAC2E06D783472884568121D2B`.
 - Remote: `origin` ->
   https://github.com/countlessbats/nier-automata-freeplay-hacks-and-enhancements
   (public). Push every commit before calling work complete.
@@ -83,6 +83,12 @@ tool bound to F10. `tools/ControlPanel.ps1` still works as an external panel.- S
   parser and the control panel failed to start; both tools are ASCII-only now.
 - The user prefers the agent to launch the game for them once a build is ready,
   since it is slow to start.
+- **Auto-load walks the title menu with synthetic pad presses and is OFF by
+  default.** It is blind: it does not read the menu, so a layout other than the
+  expected one lands on the wrong entry. Real input cancels the queue. The
+  proper fix is the game's own load path — `UITitleMenu`, `UITitleMenuItem`,
+  `ContinueState` and the `@Continue` token category all exist and are the place
+  to look; `TITLE_MENU_00..12` are the entry labels.
 - Boot logos are disabled by renaming `data/movie_logo/*.usm` to `.usm.disabled`.
   That is game data rather than a mod file, so `tools/Toggle-Logos.ps1` restores
   them and the uninstaller does too. Verified: the game boots to the title

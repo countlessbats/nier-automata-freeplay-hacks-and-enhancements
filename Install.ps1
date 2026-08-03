@@ -57,7 +57,7 @@ try { [IO.File]::WriteAllText($writeProbe, 'test') } finally { Remove-Item -Lite
 
 $running = @(Get-Process -Name 'NieRAutomata','NieRAutomataCompat' -ErrorAction SilentlyContinue)
 if ($running.Count) {
-    $stage = Join-Path $target '.nierhaptics-stage-1.0.28'
+    $stage = Join-Path $target '.nierhaptics-stage-1.0.29'
     New-Item -ItemType Directory -Force -Path $stage | Out-Null
     foreach ($file in $payload) { Copy-Item -LiteralPath (Join-Path $dist $file) -Destination $stage -Force }
     Copy-Item -LiteralPath (Join-Path $root 'Watch-Deploy.ps1') -Destination $stage -Force
@@ -67,4 +67,4 @@ if ($running.Count) {
 }
 
 & (Join-Path $root 'Watch-Deploy.ps1') -Stage $dist -Target $target -DeployNow
-Write-Host "Installed NieR Haptics + Hitstop 1.0.28 to $target"
+Write-Host "Installed NieR Haptics + Hitstop 1.0.29 to $target"

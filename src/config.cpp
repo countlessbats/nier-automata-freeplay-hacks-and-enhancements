@@ -82,6 +82,9 @@ Config load_config() {
     c.multi_jump_hold_value = read_number(L"Gameplay", L"MultiJumpHoldValue", c.multi_jump_hold_value, path);
     c.multi_jump_sane_max = read_number(L"Gameplay", L"MultiJumpSaneMax", c.multi_jump_sane_max, path);
     c.keep_chips_on_death = read_bool(L"Gameplay", L"KeepChipsOnDeath", c.keep_chips_on_death, path);
+    c.auto_load_last_save = read_bool(L"Gameplay", L"AutoLoadLastSave", c.auto_load_last_save, path);
+    c.auto_load_presses = read_number(L"Gameplay", L"AutoLoadPresses", c.auto_load_presses, path);
+    c.auto_load_delay_ms = read_number(L"Gameplay", L"AutoLoadDelayMs", c.auto_load_delay_ms, path);
     c.overlay_enabled = read_bool(L"Overlay", L"Enabled", c.overlay_enabled, path);
     c.log_sound_names = read_bool(L"Diagnostics", L"LogSoundNames", c.log_sound_names, path);
     c.probe_jump_fields = read_bool(L"Diagnostics", L"ProbeJumpFields", c.probe_jump_fields, path);

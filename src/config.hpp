@@ -47,6 +47,13 @@ struct Config {
     // routine, so equipped chips are never moved onto the corpse; the body
     // still spawns and recovering it returns nothing, so nothing duplicates.
     bool keep_chips_on_death{true};
+    // Walks the title menu with synthetic confirm presses to reach the most
+    // recent save. Off by default: the presses are blind, so a menu that is not
+    // laid out as expected would land on the wrong entry. Any real input
+    // cancels the rest of the sequence.
+    bool auto_load_last_save{false};
+    unsigned auto_load_presses{2};
+    unsigned auto_load_delay_ms{2500};
 
     // In-game panel. Off by default: the first attempt at hooking the swap
     // chain crashed the game with a stack overflow and is not yet trusted.
