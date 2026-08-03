@@ -6,9 +6,9 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.25**, commit `b5a2cdc`.
+- Installed build: **1.0.26**, commit pending.
 - Installed DLL SHA-256:
-  `C65643648B80186A794C8C52723AD84BDB0715651DF5BB6343EB9A6D3CF9CBC4`.
+  `822D4802C7A775CA40548CFA0A0C225988D78C885B589D322181569D274E188C`.
 - Remote: `origin` ->
   https://github.com/countlessbats/nier-automata-freeplay-hacks-and-enhancements
   (public). Push every commit before calling work complete.
@@ -23,14 +23,15 @@
   the player raises **only** `_step_walk_` and `_step_run_`. `_step_dash_` exists
   in the bank but was never raised once, so it cannot represent sprinting.
   `FootstepsSprintOnly` therefore drops only walk.
-- **Sprinting is a state, not a speed.** `Pl0000 + 0x106F4` holds an
-  AnimationState id; the enum was read from the name table at `0x702700`:
-  0 Idle, 1 Walk, 2 RunStart, 3 RunLoop, 4 RunStop_Early, 5 RunStop, 6 Dash,
-  7 DashStop, 8-10 Escape*_Front, 11 EscapeToDash_Front, 12-14 JumpStart_*,
-  15-17 JumpUp_*, 18-20 JumpLoop_*, 21-23 JumpEnd_*, 24 Unknown. 1.0.25 logs the
-  live value beside each footstep to confirm the field tracks the gait before
-  anything gates on it. A 180 turn zeroes speed without leaving Dash, which is
-  why every speed threshold flickered.
+- **`Pl0000 + 0x1434` is not a speedometer. Do not use it.** It read ~570 in one
+  session and pinned at exactly 1054.1 for a dozen consecutive footsteps in
+  another. Speed is now measured from position deltas instead, which is ground
+  truth.
+- **`Pl0000 + 0x106F4` is the animation *request* slot, not the live state.** It
+  read 0 for all 33 footsteps of a session containing both running and
+  sprinting, because it is only written when a transition is requested. The
+  AnimationState enum below is still correct, but the live state field has not
+  been found. The jump-counter probe is the way to find it if wanted.
 - **The event names cannot separate jogging from sprinting** — both are
   `_step_run_`. `FootstepMinSpeed` gates on the game's own movement speed
   (`Pl0000 + 0x1434`). Measured from real play: running peaks at **1000-1025**,

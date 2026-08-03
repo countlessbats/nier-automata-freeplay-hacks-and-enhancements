@@ -23,7 +23,17 @@ struct Vec3 { float x{}, y{}, z{}; };
 //   behavior + 0x85C  maximum health
 //   behavior + 0xCA0  CharacterController, whose +0x794 is the movement speed
 //     the game itself computes, so 0xCA0 + 0x794 = 0x1434.
+// NOT a speedometer. This field reads ~570 in one session and pins at values
+// like 1054.1 for a dozen consecutive steps in another, which no real velocity
+// does. It is some capacity or cap, and every threshold built on it flickered.
+// Speed is now measured from the position the game reports, which is ground
+// truth and needs no faith in an offset.
 constexpr uintptr_t kControllerSpeed = 0x1434;
+// Pl0000 + 0x106F4 is the animation *request* slot, not the live state: it read
+// 0 for all 33 footsteps of a session that included both running and sprinting.
+// It is only written when a transition is requested, so it cannot be polled.
+// The enum below is still correct and still useful if the live state field is
+// ever found.
 // Pl0000 + 0x106F4 carries an AnimationState id. The enum, read out of the
 // name table at 0x702700:
 //   0 Idle  1 Walk  2 RunStart  3 RunLoop  4 RunStop_Early  5 RunStop
@@ -244,6 +254,10 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     float speed_peak{};
     uint32_t animation_state{};
     ULONGLONG speed_peak_time{};
+    Vec3 last_position{};
+    ULONGLONG last_position_time{};
+    bool have_last_position{};
+    float measured_speed{};
     ULONGLONG last_player_attack{};
     ULONGLONG last_jump_sound{};
 
@@ -362,6 +376,38 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             }
         }
 
+        // World-space speed, measured rather than trusted: distance covered
+        // between samples divided by the time between them. Sampled at 60 ms so
+        // a single stuttering frame cannot dominate, and teleports are ignored.
+        if (have_player) {
+            const ULONGLONG now = GetTickCount64();
+            if (have_last_position && now - last_position_time >= 60) {
+                const float dx = player_position.x - last_position.x;
+                const float dz = player_position.z - last_position.z;
+                const float distance = std::sqrt(dx * dx + dz * dz);
+                const float elapsed = static_cast<float>(now - last_position_time) / 1000.0f;
+                if (elapsed > 0.0f && distance < 500.0f) {
+                    const float speed = distance / elapsed;
+                    // Hold the peak briefly: a turn momentarily kills the speed
+                    // without ending the sprint, which is what made a raw
+                    // reading flicker.
+                    if (speed >= measured_speed || now - speed_peak_time > 400) {
+                        measured_speed = speed;
+                        speed_peak_time = now;
+                    }
+                }
+                last_position = player_position;
+                last_position_time = now;
+            } else if (!have_last_position) {
+                last_position = player_position;
+                last_position_time = now;
+                have_last_position = true;
+            }
+        } else {
+            have_last_position = false;
+            measured_speed = 0.0f;
+        }
+
         if (have_player && !logged_player) {
             log_line("Game events: local player acquired (HP %u, position %.2f/%.2f/%.2f, "
                      "%u other health-bearing entities)", player_health, player_position.x,
@@ -413,8 +459,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 if (config_.footsteps_sprint_only && contains(lowered, "_walk")) break;
                 // Which leaves speed as the only thing that separates jogging
                 // from sprinting, since the game gives both the same event name.
-                if (config_.footstep_min_speed > 0.0f && speed_peak < config_.footstep_min_speed)
-                    break;
+                if (config_.footstep_min_speed > 0.0f &&
+                    measured_speed < config_.footstep_min_speed) break;
                 const ULONGLONG now = GetTickCount64();
                 if (now - last_footstep < config_.footstep_min_interval_ms) break;
                 last_footstep = now;
@@ -431,8 +477,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 // filter can be checked against real play rather than assumed.
                 if (footsteps_logged < 30) {
                     ++footsteps_logged;
-                    log_line("Footstep: %-24s speed %.1f (peak %.1f) state %u", event.name,
-                             player_speed, speed_peak, animation_state);
+                    log_line("Footstep: %-24s measured %.2f units/s", event.name,
+                             measured_speed);
                 }
                 break;
             }
