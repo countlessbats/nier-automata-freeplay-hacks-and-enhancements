@@ -515,3 +515,47 @@ matters when verifying the panel without a person watching.
 
 Settings are written back to the INI, which the mod already watches and reloads,
 so the panel needs no shared state with the polling thread.
+
+
+## Loading the most recent save without synthetic input
+
+1.0.29 walks the title menu with fake pad presses, which is blind and therefore
+off by default. Everything needed to replace it with a direct call exists; this
+is what has been established so far.
+
+### What is known
+
+| Symbol | Where |
+| --- | --- |
+| `UITitleMenu` RTTI | `0xFB58D8` |
+| `UITitleMenuItem` RTTI | `0xFB58B0` |
+| `ContinueState` RTTI | `0xC35028` |
+| `@Continue` token category, registered at | `0xBFC50` |
+| `TITLE_MENU_00`..`TITLE_MENU_12` labels | `0xD0ACE8` onward |
+| `COMN_CONTINUE` label | `0xCF1D2E`, `0xD08EB8` |
+
+A menu builder sits at **`0x928FE0`**. It resolves `TITLE_MENU_00` through
+`0x14C4C0` (label lookup) and installs it via `0x8F28B0`, then loops installing
+further entries at stride `0xA0`, and finishes by zeroing what look like the
+selection fields at **`+0x450`** and `+0x45C` of the menu object in `rbp`. It has
+no direct callers, so it is virtual.
+
+### Why it is not finished
+
+`find_refs` locates nothing for the RTTI names because MSVC references type
+descriptors through image-relative offsets in the COL structures rather than
+RIP-relative operands, so the class has to be reached by walking vtables rather
+than by a reference scan. That is the next step: find `UITitleMenu`'s vtable
+through its complete-object locator, then the live instance, then confirm
+whether `+0x450` really is the highlighted index and which index Continue holds.
+
+### Two viable finishes, in order of preference
+
+1. **Call the load path directly.** `ContinueState` is a `hap` StateObject, so
+   the AutomataMP approach applies: walk the StateObject list to find it by name
+   and invoke its script function. No input, no menu assumptions.
+2. **Verify before pressing.** Keep the synthetic confirm but read the menu's
+   highlighted index first and only press when it is Continue. Much less work
+   than option 1 and removes the entire risk of landing on New Game.
+
+Either removes the reason `AutoLoadLastSave` defaults to off.
