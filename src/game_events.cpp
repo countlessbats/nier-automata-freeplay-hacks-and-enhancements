@@ -232,6 +232,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     bool left_foot{};
     ULONGLONG last_footstep{};
     unsigned footsteps_logged{};
+    float player_speed{};
     ULONGLONG last_player_attack{};
     ULONGLONG last_jump_sound{};
 
@@ -317,6 +318,9 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                             }
                         }
                     }
+                    float speed{};
+                    if (safe_read(behavior + kControllerSpeed, speed) && std::isfinite(speed) &&
+                        speed >= 0.0f && speed < 100000.0f) player_speed = speed;
                     if (safe_read(behavior + 0x50, player_position) &&
                         std::isfinite(player_position.x) && std::isfinite(player_position.y) &&
                         std::isfinite(player_position.z)) have_player = true;
@@ -378,12 +382,15 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 // steps ever reach the controller.
                 if (!mine) break;
                 if (config_.footstep_require_moving && !have_player) break;
-                // The event name states the gait. There are three, not two:
-                // `_step_walk_` is the slow stroll, `_step_run_` is ordinary
-                // traversal, and `_step_dash_` is the sustained sprint. Only the
-                // last of those is sprinting, so both of the others are dropped.
-                if (config_.footsteps_sprint_only &&
-                    (contains(lowered, "_walk") || contains(lowered, "_run"))) break;
+                // Only two gaits actually occur in play: `_step_walk_` for the
+                // light-stick stroll and `_step_run_` for everything else.
+                // `_step_dash_` exists but was never once raised across a whole
+                // session, so it cannot stand in for sprinting.
+                if (config_.footsteps_sprint_only && contains(lowered, "_walk")) break;
+                // Which leaves speed as the only thing that separates jogging
+                // from sprinting, since the game gives both the same event name.
+                if (config_.footstep_min_speed > 0.0f && player_speed < config_.footstep_min_speed)
+                    break;
                 const ULONGLONG now = GetTickCount64();
                 if (now - last_footstep < config_.footstep_min_interval_ms) break;
                 last_footstep = now;
@@ -398,9 +405,9 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                               strength);
                 // Names the gait that actually reached the controller, so the
                 // filter can be checked against real play rather than assumed.
-                if (footsteps_logged < 12) {
+                if (footsteps_logged < 30) {
                     ++footsteps_logged;
-                    log_line("Footstep: %s", event.name);
+                    log_line("Footstep: %-24s speed %.1f", event.name, player_speed);
                 }
                 break;
             }

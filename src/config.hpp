@@ -19,6 +19,11 @@ struct Config {
     // walking exactly rather than inferred. Walking is the quiet, ambient case
     // where a pulse per step is mostly clutter.
     bool footsteps_sprint_only{true};
+    // The game names only two gaits in play, walk and run, so jogging and
+    // sprinting share an event. Its own movement speed is the only thing that
+    // tells them apart. Zero disables the gate until a threshold is calibrated
+    // from the speeds the log reports.
+    float footstep_min_speed{0.0f};
     bool footstep_require_moving{true};
     unsigned footstep_min_interval_ms{70};
     bool enemy_hit_enabled{true};

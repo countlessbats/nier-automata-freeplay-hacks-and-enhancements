@@ -72,6 +72,7 @@ Config load_config() {
     c.footsteps_enabled = read_bool(L"Haptics", L"FootstepsEnabled", c.footsteps_enabled, path);
     c.footstep_strength = std::clamp(read_float(L"Haptics", L"FootstepStrength", c.footstep_strength, path), 0.0f, 1.0f);
     c.footsteps_sprint_only = read_bool(L"Haptics", L"FootstepsSprintOnly", c.footsteps_sprint_only, path);
+    c.footstep_min_speed = std::clamp(read_float(L"Haptics", L"FootstepMinSpeed", c.footstep_min_speed, path), 0.0f, 100000.0f);
     c.footstep_require_moving = read_bool(L"Haptics", L"FootstepRequireMoving", c.footstep_require_moving, path);
     const int footstep_gap = static_cast<int>(GetPrivateProfileIntW(
         L"Haptics", L"FootstepMinIntervalMs", c.footstep_min_interval_ms, path.c_str()));
