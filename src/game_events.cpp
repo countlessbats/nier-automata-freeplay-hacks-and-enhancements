@@ -24,6 +24,14 @@ struct Vec3 { float x{}, y{}, z{}; };
 //   behavior + 0xCA0  CharacterController, whose +0x794 is the movement speed
 //     the game itself computes, so 0xCA0 + 0x794 = 0x1434.
 constexpr uintptr_t kControllerSpeed = 0x1434;
+// Pl0000 + 0x106F4 carries an AnimationState id. The enum, read out of the
+// name table at 0x702700:
+//   0 Idle  1 Walk  2 RunStart  3 RunLoop  4 RunStop_Early  5 RunStop
+//   6 Dash  7 DashStop  8-10 Escape*_Front  11 EscapeToDash_Front
+//   12-14 JumpStart_*  15-17 JumpUp_*  18-20 JumpLoop_*  21-23 JumpEnd_*
+// Sprinting is a state the game holds, not a speed, which is why a speed
+// threshold kept flickering: a 180 turn zeroes the speed without leaving Dash.
+constexpr uintptr_t kAnimationState = 0x106F4;
 // Pl0000 is 0x17920 bytes. The probe walks this much of it looking for the
 // air-jump counter; it only ever reads.
 constexpr size_t kPlayerBlockBytes = 0x17920;
@@ -234,6 +242,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     unsigned footsteps_logged{};
     float player_speed{};
     float speed_peak{};
+    uint32_t animation_state{};
     ULONGLONG speed_peak_time{};
     ULONGLONG last_player_attack{};
     ULONGLONG last_jump_sound{};
@@ -320,6 +329,9 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                             }
                         }
                     }
+                    uint32_t state{};
+                    if (safe_read(behavior + kAnimationState, state) && state <= 64)
+                        animation_state = state;
                     float speed{};
                     if (safe_read(behavior + kControllerSpeed, speed) && std::isfinite(speed) &&
                         speed >= 0.0f && speed < 100000.0f) {
@@ -419,8 +431,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 // filter can be checked against real play rather than assumed.
                 if (footsteps_logged < 30) {
                     ++footsteps_logged;
-                    log_line("Footstep: %-24s speed %.1f (peak %.1f)", event.name,
-                             player_speed, speed_peak);
+                    log_line("Footstep: %-24s speed %.1f (peak %.1f) state %u", event.name,
+                             player_speed, speed_peak, animation_state);
                 }
                 break;
             }

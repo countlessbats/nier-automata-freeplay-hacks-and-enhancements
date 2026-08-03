@@ -6,9 +6,9 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.24**, commit `9228c81`.
+- Installed build: **1.0.25**, commit pending.
 - Installed DLL SHA-256:
-  `2214D462F40F9EF8A943540F80A1159C8133446FF9DB18B4861F89A5037A7262`.
+  `C65643648B80186A794C8C52723AD84BDB0715651DF5BB6343EB9A6D3CF9CBC4`.
 - Remote: `origin` ->
   https://github.com/countlessbats/nier-automata-freeplay-hacks-and-enhancements
   (public). Push every commit before calling work complete.
@@ -23,6 +23,14 @@
   the player raises **only** `_step_walk_` and `_step_run_`. `_step_dash_` exists
   in the bank but was never raised once, so it cannot represent sprinting.
   `FootstepsSprintOnly` therefore drops only walk.
+- **Sprinting is a state, not a speed.** `Pl0000 + 0x106F4` holds an
+  AnimationState id; the enum was read from the name table at `0x702700`:
+  0 Idle, 1 Walk, 2 RunStart, 3 RunLoop, 4 RunStop_Early, 5 RunStop, 6 Dash,
+  7 DashStop, 8-10 Escape*_Front, 11 EscapeToDash_Front, 12-14 JumpStart_*,
+  15-17 JumpUp_*, 18-20 JumpLoop_*, 21-23 JumpEnd_*, 24 Unknown. 1.0.25 logs the
+  live value beside each footstep to confirm the field tracks the gait before
+  anything gates on it. A 180 turn zeroes speed without leaving Dash, which is
+  why every speed threshold flickered.
 - **The event names cannot separate jogging from sprinting** — both are
   `_step_run_`. `FootstepMinSpeed` gates on the game's own movement speed
   (`Pl0000 + 0x1434`). Measured from real play: running peaks at **1000-1025**,
@@ -69,6 +77,10 @@ tool bound to F10. `tools/ControlPanel.ps1` still works as an external panel.- S
   parser and the control panel failed to start; both tools are ASCII-only now.
 - The user prefers the agent to launch the game for them once a build is ready,
   since it is slow to start.
+- Boot logos are disabled by renaming `data/movie_logo/*.usm` to `.usm.disabled`.
+  That is game data rather than a mod file, so `tools/Toggle-Logos.ps1` restores
+  them and the uninstaller does too. Verified: the game boots to the title
+  screen with them gone.
 
 ## Hitstop is removed — do not revive it
 

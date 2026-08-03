@@ -22,3 +22,16 @@ foreach ($name in @('NierHaptics.ini','NierHaptics.log','NierHaptics.install.jso
 }
 Write-Host 'NieR Haptics + Hitstop was removed. This uninstaller may now be deleted.'
 
+# Boot logos, if they were disabled, are game data rather than mod files, so
+# removal puts them back.
+$logoDir = Join-Path $target 'data\movie_logo'
+if (Test-Path -LiteralPath $logoDir) {
+    Get-ChildItem -LiteralPath $logoDir -Filter '*.usm.disabled' -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            $restored = $_.FullName -replace '\.disabled$', ''
+            if (-not (Test-Path -LiteralPath $restored)) {
+                Rename-Item -LiteralPath $_.FullName -NewName (Split-Path $restored -Leaf)
+                Write-Host "Restored $(Split-Path $restored -Leaf)"
+            }
+        }
+}
