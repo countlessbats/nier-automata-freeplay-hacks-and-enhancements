@@ -6,7 +6,7 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.24**, commit pending.
+- Installed build: **1.0.24**, commit `9228c81`.
 - Installed DLL SHA-256:
   `2214D462F40F9EF8A943540F80A1159C8133446FF9DB18B4861F89A5037A7262`.
 - Remote: `origin` ->
