@@ -66,19 +66,18 @@ function Set-IniValues([hashtable]$values) {
 $toggles = @(
     @{ Key = 'HapticsEnabled';       Text = 'Haptics on' },
     @{ Key = 'FootstepsEnabled';     Text = 'Footsteps' },
-    @{ Key = 'FootstepsInCombat';    Text = 'Footsteps during combat' },
-    @{ Key = 'FootstepPlayerOnly';   Text = 'Only your own footsteps' },
+    @{ Key = 'FootstepsSprintOnly';  Text = 'Footsteps only while sprinting' },
     @{ Key = 'MenuEnabled';          Text = 'Menu haptics' },
     @{ Key = 'EnemyHitEnabled';      Text = 'Landing a hit' },
     @{ Key = 'PlayerHitEnabled';     Text = 'Taking a hit' },
-    @{ Key = 'MultiJumpEnabled';     Text = 'Unlimited jumps' }
+    @{ Key = 'MultiJumpEnabled';     Text = 'Unlimited jumps' },
+    @{ Key = 'KeepChipsOnDeath';     Text = 'Keep chips on death (next launch)' }
 )
 $sliders = @(
     @{ Key = 'FootstepStrength';  Text = 'Footstep intensity'; Scale = 100 },
     @{ Key = 'MenuStrength';      Text = 'Menu intensity';     Scale = 100 },
     @{ Key = 'EnemyHitStrength';  Text = 'Hit intensity';      Scale = 100 },
-    @{ Key = 'PlayerHitStrength'; Text = 'Damage intensity';   Scale = 100 },
-    @{ Key = 'CombatWindowMs';    Text = 'Combat lasts (ms)';  Scale = 1; Max = 15000 }
+    @{ Key = 'PlayerHitStrength'; Text = 'Damage intensity';   Scale = 100 }
 )
 
 # ------------------------------------------------------------------ form
