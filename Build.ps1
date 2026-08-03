@@ -24,6 +24,7 @@ $sources = @(
     (Join-Path $root 'src\game_events.cpp'),
     (Join-Path $root 'src\chip_keeper.cpp'),
     (Join-Path $root 'src\easy_chips.cpp'),
+    (Join-Path $root 'src\auto_chips.cpp'),
     (Join-Path $root 'src\quick_load.cpp'),
     (Join-Path $root 'src\camera_probe.cpp'),
     (Join-Path $root 'src\iat.cpp'),

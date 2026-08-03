@@ -883,3 +883,23 @@ offsets within their struct, from the parse order:
 `fixCamFront_` and its interpolation pair are the likely drivers of the camera
 returning to a resting angle. Which one actually does it is being read off real
 play with the F9 dump rather than guessed at.
+
+## Auto chips and the L2 button
+
+`+0x7F4F80` answers "does the equipped chip set contain an auto chip". It walks
+the set looking for an id in `0xD1A..0xD1E`, the five auto chips, and returns
+non-zero on the first hit. The chip manager is the static object at `+0xF5D0C0`,
+and the set index it asks about is at `+0x1F48` within it.
+
+A dozen callers ask that question, but only two use it to take L2 away:
+
+- `+0x42CD54`, the gameplay path. On a yes it jumps past `+0x42CD6E`, which is
+  the lock-on call, so L2 becomes the auto chip toggle instead.
+- `+0x7E0F7F`, the button label, choosing `OPTION_CONFIG_20` (toggle auto chips)
+  over `OPTION_CONFIG_05` (target enemy).
+
+Answering no at those two sites, by replacing each `call` with `xor eax, eax`
+and padding, returns L2 to lock-on and leaves the chips permanently on, since
+L2 was the only way to switch them off. Every other caller still gets the real
+answer, so the chips keep working and the menus are unaffected. Patching the
+query itself would break all of that, which is why it is done per call site.

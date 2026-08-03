@@ -262,6 +262,12 @@ void draw_panel() {
     ImGui::TextDisabled("Turning this off leaves equipped chips alone.");
 
     ImGui::Spacing();
+    if (ImGui::Checkbox("Auto-chips always on, L2 keeps lock-on",
+                        &g_settings.auto_chips_always_on))
+        write_bool(L"Gameplay", L"AutoChipsAlwaysOn", g_settings.auto_chips_always_on);
+    ImGui::TextDisabled("Equipped auto-chips stop stealing the targeting button.");
+
+    ImGui::Spacing();
     if (ImGui::Checkbox("Jump straight into the newest save",
                         &g_settings.auto_load_last_save))
         write_bool(L"Gameplay", L"AutoLoadLastSave", g_settings.auto_load_last_save);

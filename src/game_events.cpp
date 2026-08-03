@@ -1,5 +1,6 @@
 #include "game_events.hpp"
 #include "chip_keeper.hpp"
+#include "auto_chips.hpp"
 #include "easy_chips.hpp"
 #include "camera_probe.hpp"
 #include "quick_load.hpp"
@@ -339,6 +340,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
 
         // Reapplied every pass so the panel's switch takes effect at once.
         if (easy_chips_ready) set_easy_chips_anywhere(config_.easy_chips_anywhere);
+        if (easy_chips_ready) set_auto_chips_always_on(config_.auto_chips_always_on);
 
         Vec3 player_position{};
         bool have_player{};

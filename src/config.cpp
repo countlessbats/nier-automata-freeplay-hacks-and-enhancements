@@ -83,6 +83,7 @@ Config load_config() {
     c.multi_jump_sane_max = read_number(L"Gameplay", L"MultiJumpSaneMax", c.multi_jump_sane_max, path);
     c.keep_chips_on_death = read_bool(L"Gameplay", L"KeepChipsOnDeath", c.keep_chips_on_death, path);
     c.easy_chips_anywhere = read_bool(L"Gameplay", L"EasyChipsAnywhere", c.easy_chips_anywhere, path);
+    c.auto_chips_always_on = read_bool(L"Gameplay", L"AutoChipsAlwaysOn", c.auto_chips_always_on, path);
     c.log_save_state = read_bool(L"Diagnostics", L"LogSaveState", c.log_save_state, path);
     c.log_camera_fields = read_bool(L"Diagnostics", L"LogCameraFields", c.log_camera_fields, path);
     c.auto_load_last_save = read_bool(L"Gameplay", L"AutoLoadLastSave", c.auto_load_last_save, path);
