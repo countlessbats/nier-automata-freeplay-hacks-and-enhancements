@@ -636,7 +636,27 @@ uses it together with the difficulty to decide which explanation to show. It is
 the strongest candidate for the legality check, so the next step is to
 disassemble it and see whether it consults `0x9CA170`.
 
-**Implemented.** The gate is `0x7F4F80`: it walks the chip array at stride
+**The gate is `isChipUsable` at `0x7CCE80`.** It reads:
+
+    eax = chipId - 0xD1A
+    if (eax <= 4)              // one of the five auto chips
+        if (difficulty() != 0) // anything but Easy
+            return 0;          // not usable
+    ...
+    return 1;
+
+The `ja` at `+0x11` skips the difficulty test for ordinary chips. Making it
+unconditional sends auto chips down the same path, so they are never rejected.
+One byte, `0x77` to `0xEB`.
+
+Found by intersecting the ten sites that test the `0xD1A..0xD1E` range with the
+45 callers of the difficulty getter: only five functions do both, and this is
+the smallest, doing nothing else.
+
+**A first attempt patched `0x7F4F80` and did nothing**, because that function
+only reports whether a set contains an auto chip. Superseded note follows.
+
+Superseded: the gate is `0x7F4F80`: it walks the chip array at stride
 `0x30` and returns 1 as soon as a chip's id falls in `0xD1A..0xD1E`. Overwriting
 its first three bytes with `xor eax, eax; ret` makes it answer "no auto chips
 here", which is what the restriction hangs on. Three bytes, reversible in place,

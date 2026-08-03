@@ -5,28 +5,42 @@
 #include <cstdint>
 #include <cstring>
 
-// The gate is a small function that walks the chip array, stride 0x30, and
-// returns 1 as soon as it finds a chip whose id falls in 0xD1A..0xD1E, the five
-// auto chips. Replacing its first three bytes with `xor eax, eax; ret` makes it
-// answer "this set has no auto chips", which is what the restriction hangs on.
+// The gate is `isChipUsable` at 0x7CCE80:
 //
-// Chosen over patching the difficulty check because this touches one function
-// with a single, well-understood job, and because it is reversible byte for
-// byte while the game runs.
+//     eax = chipId - 0xD1A
+//     if (eax <= 4)              // one of the five auto chips
+//         if (difficulty() != 0) // anything but Easy
+//             return 0;          // not usable
+//     ...
+//     return 1;
+//
+// The branch that skips the difficulty test for ordinary chips is a `ja` at
+// +0x11. Making it unconditional sends auto chips down the same path, so they
+// are never rejected for the difficulty.
+//
+// One byte, restored exactly when switched off, and nothing is written to the
+// save: a chip already equipped stays equipped, and only becomes unequippable
+// once removed.
+//
+// An earlier attempt patched 0x7F4F80, which merely reports whether a set
+// contains an auto chip. That is not what the restriction hangs on, and it did
+// nothing.
 
 namespace {
-constexpr unsigned char kPatch[3] = {0x31, 0xC0, 0xC3};   // xor eax, eax ; ret
+constexpr size_t kBranchOffset = 0x11;                 // the `ja` past the check
+constexpr unsigned char kPatch = 0xEB;                 // jmp, taken always
+constexpr unsigned char kOriginalBranch = 0x77;        // ja
 
 uintptr_t g_gate{};
-unsigned char g_original[3]{};
 bool g_patched{};
 
 uintptr_t find_gate() {
     if (g_gate) return g_gate;
     // 83 FA 02 77 4A 4C 8B 11 45 33 C0 49 8D 8A 7C 1F 00 00 44 8B
+    // push rbx / sub rsp,20 / lea eax,[rdx-0xD1A] / mov ebx,edx / cmp eax,4 / ja
     static constexpr unsigned char pattern[] = {
-        0x83,0xFA,0x02,0x77,0x4A,0x4C,0x8B,0x11,0x45,0x33,
-        0xC0,0x49,0x8D,0x8A,0x7C,0x1F,0x00,0x00,0x44,0x8B};
+        0x40,0x53,0x48,0x83,0xEC,0x20,0x8D,0x82,0xE6,0xF2,
+        0xFF,0xFF,0x8B,0xDA,0x83,0xF8,0x04,0x77};
     auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
@@ -38,8 +52,7 @@ uintptr_t find_gate() {
         for (size_t i = 0; i + sizeof(pattern) <= size; ++i) {
             if (memcmp(start + i, pattern, sizeof(pattern)) == 0) {
                 g_gate = reinterpret_cast<uintptr_t>(start + i);
-                memcpy(g_original, start + i, sizeof(g_original));
-                log_line("Easy chips: auto-chip gate found at NieRAutomata.exe+0x%llX",
+                log_line("Easy chips: isChipUsable found at NieRAutomata.exe+0x%llX",
                          static_cast<unsigned long long>(g_gate -
                          reinterpret_cast<uintptr_t>(base)));
                 return g_gate;
@@ -70,8 +83,8 @@ bool set_easy_chips_anywhere(bool enabled) {
         return false;
     }
     if (enabled == g_patched) return true;
-    const bool ok = enabled ? write_bytes(g_gate, kPatch, sizeof(kPatch))
-                            : write_bytes(g_gate, g_original, sizeof(g_original));
+    const unsigned char byte = enabled ? kPatch : kOriginalBranch;
+    const bool ok = write_bytes(g_gate + kBranchOffset, &byte, 1);
     if (ok) {
         g_patched = enabled;
         log_line("Easy chips: auto chips are %s at any difficulty",
