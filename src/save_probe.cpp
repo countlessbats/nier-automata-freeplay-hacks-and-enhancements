@@ -2,6 +2,8 @@
 #include "config.hpp"
 #include "iat.hpp"
 
+#include <process.h>
+
 #include <Windows.h>
 #include <Psapi.h>
 #include <cstdint>
@@ -76,7 +78,46 @@ HANDLE WINAPI create_file_a_hook(LPCSTR name, DWORD access, DWORD share,
 
 }  // namespace
 
+namespace {
+// The save and load drivers at +0x9C7B70 and +0x9C7FC0 both switch on one
+// state word, and the load driver reads a second word right after it. Watching
+// the pair while a save is chosen normally gives the exact sequence a
+// quick-load has to reproduce, which no amount of file hooking could show:
+// the slots are all read before the list is drawn.
+constexpr unsigned kStateRva = 0x1421EF4;   // 0..6, shared by both drivers
+constexpr unsigned kSubStateRva = 0x1421EF8;
+constexpr unsigned kStagingRva = 0x14220C0;  // the buffer a slot is read into
+constexpr unsigned kLiveRva = 0x145BF60;     // the live game data block
+
+unsigned WINAPI watch_save_state(void*) {
+    auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
+    auto* state = reinterpret_cast<volatile int*>(base + kStateRva);
+    auto* sub = reinterpret_cast<volatile int*>(base + kSubStateRva);
+    auto* staging = reinterpret_cast<volatile unsigned*>(base + kStagingRva);
+    auto* live = reinterpret_cast<volatile unsigned*>(base + kLiveRva);
+    int last_state = -999, last_sub = -999;
+    unsigned last_staging = 0, last_live = 0;
+    for (;;) {
+        const int s = *state, u = *sub;
+        const unsigned g = *staging, v = *live;
+        if (s != last_state || u != last_sub) {
+            log_line("Save state: %d/%d -> %d/%d  (staging %08X, live %08X)",
+                     last_state, last_sub, s, u, g, v);
+            last_state = s; last_sub = u;
+        }
+        if (g != last_staging || v != last_live) {
+            log_line("Save buffers: staging %08X -> %08X, live %08X -> %08X",
+                     last_staging, g, last_live, v);
+            last_staging = g; last_live = v;
+        }
+        Sleep(1);
+    }
+}
+}  // namespace
+
 bool install_save_probe() {
+    _beginthreadex(nullptr, 0, &watch_save_state, nullptr, 0, nullptr);
+    log_line("Save probe: watching the save state machine at +0x%X", kStateRva);
     void* original{};
     bool any = false;
     if (patch_game_import("KERNEL32.dll", "CreateFileW",
