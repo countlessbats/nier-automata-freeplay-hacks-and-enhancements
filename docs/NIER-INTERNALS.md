@@ -809,3 +809,34 @@ do, from the slot index held in the request object.
 
 On disk a slot file is `0x399CC` bytes: a twelve byte wrapper followed by the
 `0x399C0` block, so the header the game checks sits at offset `0xC`.
+
+### The request table, and a warning
+
+The save system is driven by numbered requests. The request word is
+`+0x1421EF0`, the step both drivers switch on is `+0x1421EF4`, and the slot the
+operation applies to is `+0x1421EF8`. Every request has a small entry point that
+validates its arguments, refuses to start while another request is pending, and
+sets those three words:
+
+| Request | Entry point | Argument |
+| --- | --- | --- |
+| 3 | `+0x9C92E0` | none |
+| 6 | `+0x9C93A0` | slot |
+| 9 | `+0x9C9240` | two |
+| 10 | `+0x9C9600` | none |
+| 11 | `+0x9C9330` | slot |
+| 12 | `+0x9C2D00` | none |
+
+Two were tested against a real save:
+
+- **Request 11** reads a slot into the staging buffer and stops there. The step
+  sequence is `0 1 3 4 5 6 10 0` and the live block is never touched.
+- **Request 6 writes the slot file from the live block.** It is save, not load,
+  and it overwrote a real save when called at the title screen. Do not probe
+  this table against save data that matters.
+
+Request 14 is the title screen's own enumeration of all four slots.
+
+Which request loads a slot into the running game is still open. It should be
+read off a real Start Game with the request word under observation, not guessed
+at: half of these codes write.

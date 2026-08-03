@@ -85,6 +85,7 @@ namespace {
 // quick-load has to reproduce, which no amount of file hooking could show:
 // the slots are all read before the list is drawn.
 constexpr unsigned kStateRva = 0x1421EF4;   // 0..6, shared by both drivers
+constexpr unsigned kRequestRva = 0x1421EF0;
 constexpr unsigned kSubStateRva = 0x1421EF8;
 constexpr unsigned kStagingRva = 0x14220C0;  // the buffer a slot is read into
 constexpr unsigned kLiveRva = 0x145BF60;     // the live game data block
@@ -93,17 +94,18 @@ unsigned WINAPI watch_save_state(void*) {
     auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
     auto* state = reinterpret_cast<volatile int*>(base + kStateRva);
     auto* sub = reinterpret_cast<volatile int*>(base + kSubStateRva);
+    auto* request = reinterpret_cast<volatile int*>(base + kRequestRva);
     auto* staging = reinterpret_cast<volatile unsigned*>(base + kStagingRva);
     auto* live = reinterpret_cast<volatile unsigned*>(base + kLiveRva);
-    int last_state = -999, last_sub = -999;
+    int last_state = -999, last_sub = -999, last_request = -999;
     unsigned last_staging = 0, last_live = 0;
     for (;;) {
-        const int s = *state, u = *sub;
+        const int s = *state, u = *sub, r = *request;
         const unsigned g = *staging, v = *live;
-        if (s != last_state || u != last_sub) {
-            log_line("Save state: %d/%d -> %d/%d  (staging %08X, live %08X)",
-                     last_state, last_sub, s, u, g, v);
-            last_state = s; last_sub = u;
+        if (s != last_state || u != last_sub || r != last_request) {
+            log_line("Save state: step %d->%d slot %d->%d request %d->%d (staging %08X, live %08X)",
+                     last_state, s, last_sub, u, last_request, r, g, v);
+            last_state = s; last_sub = u; last_request = r;
         }
         if (g != last_staging || v != last_live) {
             log_line("Save buffers: staging %08X -> %08X, live %08X -> %08X",

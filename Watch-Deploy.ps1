@@ -51,7 +51,7 @@ foreach ($name in @('dinput8.dll','NierHaptics.ini','Uninstall-NierHaptics.ps1')
     Copy-Item -LiteralPath $source -Destination $temporary -Force
     Move-Item -LiteralPath $temporary -Destination $destination -Force
 }
-@{ version='1.0.43'; dllHash=$sourceHash; backup=(Test-Path -LiteralPath $backup) } |
+@{ version='1.0.46'; dllHash=$sourceHash; backup=(Test-Path -LiteralPath $backup) } |
     ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 if ($Stage -like (Join-Path $Target '.nierhaptics-stage-*')) {
     Remove-Item -LiteralPath $Stage -Recurse -Force

@@ -11,7 +11,22 @@
 namespace {
 
 // Located by disassembling the decrypted image; see docs/NIER-INTERNALS.md.
-constexpr unsigned kStateRva = 0x1421EF4;    // shared by the save and load drivers
+constexpr unsigned kRequestRva = 0x1421EF0;  // pending operation; non-zero means busy
+constexpr unsigned kStateRva = 0x1421EF4;    // the step both drivers switch on
+constexpr unsigned kSlotRva = 0x1421EF8;     // which slot the operation applies to
+// The save system takes numbered requests. Two of its entry points take a slot
+// and were tested against a real save:
+//
+//   +0x9C9330  request 11  reads a slot into the staging buffer. Harmless, but
+//                          it stops there; the live block is never touched.
+//   +0x9C93A0  request  6  WRITES the live block to the slot. This is save, not
+//                          load, and it overwrote a real save file when tried.
+//                          Never call it looking for a load.
+//
+// Which request loads a slot into the running game is still unknown, so nothing
+// is issued here yet. It has to be read off a real Start Game rather than
+// guessed at, because half the codes in this table destroy data.
+constexpr unsigned kRequestSlotReadRva = 0x9C9330;
 constexpr unsigned kStagingRva = 0x14220C0;  // the buffer a slot is read into
 constexpr unsigned kLiveRva = 0x145BF60;     // the live game data block
 constexpr unsigned kBlockSize = 0x399C0;
@@ -78,13 +93,13 @@ bool try_quick_load() {
 
     auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
     auto* state = reinterpret_cast<volatile int*>(base + kStateRva);
-    auto* staging = reinterpret_cast<unsigned char*>(base + kStagingRva);
+    auto* staging = reinterpret_cast<const unsigned char*>(base + kStagingRva);
     auto* live = reinterpret_cast<volatile unsigned short*>(base + kLiveRva);
 
     // The title screen reads every slot before it draws the list, which leaves
     // the header in the staging buffer. That is the signal that the save system
     // is up and idle, and it costs nothing to wait for.
-    if (*reinterpret_cast<volatile unsigned short*>(staging) != kMagic) return false;
+    if (*reinterpret_cast<const volatile unsigned short*>(staging) != kMagic) return false;
     if (*state != 0) return false;
     if (*live == kMagic) { done = true; return true; }  // already in a game
 
@@ -96,24 +111,19 @@ bool try_quick_load() {
         return true;
     }
 
+    // The file is read only to confirm the slot is one this build understands
+    // before asking the game to load it; the game does its own read.
     std::vector<unsigned char> data;
-    if (!read_slot(path, data)) {
-        log_line("Quick load: slot %d is not a %u byte block; skipping", slot, kBlockSize);
-        done = true;
-        return true;
-    }
-    const unsigned char* block = data.data() + kFileHeader;
-    if (*reinterpret_cast<const unsigned short*>(block) != kMagic) {
-        log_line("Quick load: slot %d has header %04X, expected %04X; skipping",
-                 slot, *reinterpret_cast<const unsigned short*>(block), kMagic);
+    if (!read_slot(path, data) ||
+        *reinterpret_cast<const unsigned short*>(data.data() + kFileHeader) != kMagic) {
+        log_line("Quick load: slot %d is not a save this build recognises; skipping", slot);
         done = true;
         return true;
     }
 
-    memcpy(staging, block, kBlockSize);
-    *state = kApplyState;
+    (void)kRequestSlotReadRva;
     done = true;
-    log_line("Quick load: staged slot %d and set the save system to state %d",
-             slot, kApplyState);
+    log_line("Quick load: slot %d is ready, but the load request is not identified "
+             "yet; doing nothing", slot);
     return true;
 }
