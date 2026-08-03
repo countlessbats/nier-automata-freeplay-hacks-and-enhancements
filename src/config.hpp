@@ -24,9 +24,9 @@ struct Config {
     // tells them apart. Zero disables the gate until a threshold is calibrated
     // from the speeds the log reports.
     // World units per second, measured from the position the game reports.
-    // Defaults to 0 because the right number has to come from real play; the
-    // log prints the measured speed beside every footstep.
-    float footstep_min_speed{0.0f};
+    // Measured over a session: jogging runs 4.5-7.2 and sprinting 7.7-14.3,
+    // clustering near 10, so the line sits at 8. Set 0 to feel every step.
+    float footstep_min_speed{8.0f};
     bool footstep_require_moving{true};
     unsigned footstep_min_interval_ms{70};
     bool enemy_hit_enabled{true};

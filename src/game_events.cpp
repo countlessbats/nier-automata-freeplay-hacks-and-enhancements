@@ -382,7 +382,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                     // Its own timestamp. Sharing one with the old reader meant
                     // this hold never decayed and simply latched the highest
                     // speed of the whole session.
-                    if (speed >= measured_speed || now - speed_hold_time > 400) {
+                    if (speed >= measured_speed || now - speed_hold_time > 250) {
                         measured_speed = speed;
                         speed_hold_time = now;
                     }

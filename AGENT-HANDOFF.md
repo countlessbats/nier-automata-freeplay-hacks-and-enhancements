@@ -6,9 +6,9 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.27**, commit `a3970a3`.
+- Installed build: **1.0.28**, commit pending.
 - Installed DLL SHA-256:
-  `C16612A807EF35F5C19276F00A30178B53EF8A2C599F4210EE1227C58C5F441C`.
+  `C204D6BB9482EE5EDB6685EC5FC05005DB0ADE5533FBB67D337976761FC150C3`.
 - Remote: `origin` ->
   https://github.com/countlessbats/nier-automata-freeplay-hacks-and-enhancements
   (public). Push every commit before calling work complete.
@@ -32,6 +32,11 @@
   sprinting, because it is only written when a transition is requested. The
   AnimationState enum below is still correct, but the live state field has not
   been found. The jump-counter probe is the way to find it if wanted.
+- **Measured speeds, from position deltas over a real session:** jogging is
+  4.5-7.2 units/s and sprinting is 7.7-14.3, clustering near 10. They overlap
+  only between 7.22 and 7.66, so `FootstepMinSpeed` sits at 8. That is a genuine
+  2x separation; anything claiming these differ by a few percent is measuring
+  the wrong thing.
 - **The event names cannot separate jogging from sprinting** — both are
   `_step_run_`. `FootstepMinSpeed` gates on the game's own movement speed
   (`Pl0000 + 0x1434`). Measured from real play: running peaks at **1000-1025**,

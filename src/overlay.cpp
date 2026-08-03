@@ -192,9 +192,9 @@ void draw_panel() {
             write_bool(L"Haptics", L"FootstepsSprintOnly", g_settings.footsteps_sprint_only);
         // Running and sprinting share one event name, so only speed separates
         // them. Drag this while moving to find the line by feel.
-        if (ImGui::SliderFloat("Sprint speed", &g_settings.footstep_min_speed, 0.0f, 60.0f, "%.1f"))
+        if (ImGui::SliderFloat("Sprint speed", &g_settings.footstep_min_speed, 0.0f, 20.0f, "%.1f"))
             write_float(L"Haptics", L"FootstepMinSpeed", g_settings.footstep_min_speed);
-        ImGui::TextDisabled("World units per second. 0 feels every step.");
+        ImGui::TextDisabled("Jogging measures 4.5-7.2, sprinting 7.7-14.3. 0 feels every step.");
     }
 
     if (ImGui::CollapsingHeader("Combat and menus", ImGuiTreeNodeFlags_DefaultOpen)) {
