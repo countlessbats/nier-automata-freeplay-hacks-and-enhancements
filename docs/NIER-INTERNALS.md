@@ -903,3 +903,24 @@ and padding, returns L2 to lock-on and leaves the chips permanently on, since
 L2 was the only way to switch them off. Every other caller still gets the real
 answer, so the chips keep working and the menus are unaffected. Patching the
 query itself would break all of that, which is why it is done per call site.
+
+## The chip storage grid (unfinished)
+
+The centre-right grid on the plug-in chip screen is
+`UIPauseMenuItemPluginChipLayout`, whose RTTI is at `+0xFB40A8` and vtable at
+`+0xD04DD8`. Related classes: `UIPauseMenuItemPluginChipChip` (vtable
+`+0xD04E98`), `UIPauseMenuItemPluginChipLockSlot`,
+`UIPauseMenuItemPluginChipStorageCapacity` and `UiCoreMenuItemPluginChipWindow`
+(vtable `+0xD05340`).
+
+Its own virtuals are presentation only. Slot 1 (`+0x9234A0`) draws, and slot 10
+(`+0x99EBB0`) is a five state fade machine switching on `+0x88` and writing
+`+0xC`. Neither moves a cursor, so the navigation that clamps at the ends of the
+grid lives in the screen that owns the widget rather than in the widget.
+
+Next step is to find that owner. The chip screens are the callers of the
+auto-chip query in the `+0x98xxxx` range: `+0x988BFF`, `+0x9897EA`, `+0x98B15F`,
+`+0x98C920`, `+0x98CEDE`, `+0x97DCF8` and `+0x9870BA`. Worth checking first
+whether the wrapping the other lists do is a flag on a shared cursor helper
+rather than separate code, since that would make this a flag flip instead of a
+rewrite.
