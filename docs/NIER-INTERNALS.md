@@ -918,9 +918,35 @@ Its own virtuals are presentation only. Slot 1 (`+0x9234A0`) draws, and slot 10
 `+0xC`. Neither moves a cursor, so the navigation that clamps at the ends of the
 grid lives in the screen that owns the widget rather than in the widget.
 
-Next step is to find that owner. The chip screens are the callers of the
-auto-chip query in the `+0x98xxxx` range: `+0x988BFF`, `+0x9897EA`, `+0x98B15F`,
-`+0x98C920`, `+0x98CEDE`, `+0x97DCF8` and `+0x9870BA`. Worth checking first
-whether the wrapping the other lists do is a flag on a shared cursor helper
-rather than separate code, since that would make this a flag flip instead of a
-rewrite.
+The screen controller is `+0x9870BA`; `+0x9897EA` is the placement screen that
+posts `core_pluginchip_equip`. These list widgets share a layout:
+
+| Field | Meaning |
+| --- | --- |
+| `+0x38` | selected index |
+| `+0x18` | scroll offset, top of the visible window |
+| `+0xE0` | entry count |
+| `+0xF4` | entry array, one dword each |
+
+Nine rows are visible, so the scroll clamps use `+9` and `-8`.
+
+Wrapping is per handler rather than a shared flag, and the engine already has
+both forms. The pad and keyboard navigation at `+0x98C347` wraps in both
+directions:
+
+```
+down, +0x98C6DA:  eax = count-1; if (sel >= eax) sel = 0;    else ++sel
+up,   +0x98C7B7:  if (sel <= 0) edx = count; --edx; sel = edx
+```
+
+That is the left-hand chip list, and the idiom to copy. Mouse wheel navigation
+at `+0x98B677` clamps instead, at `+0x98B821`-`+0x98B831`, as does `+0x9897EA`
+at `+0x989D75`, but those clamp the selection into the visible window rather
+than at the ends of the list, which is correct behaviour for a wheel.
+
+Remaining: the centre-right storage grid is a different handler that clamps at
+the ends. The other writers of `+0x38` in this range are the candidates:
+`+0x988BFF` (four writes), `+0x98AA30`, `+0x98BBFC` and `+0x991E00` (five).
+Each needs checking for the up and down branches above; wherever they clamp to
+zero or to count-1 instead of wrapping is the fix, and it is the same shape in
+the same number of bytes.
