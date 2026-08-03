@@ -232,3 +232,43 @@ uintptr_t find_state_object(const char* wanted, bool log_all) {
              found ? "; the wanted one was found" : "");
     return found;
 }
+
+void scan_state_objects() {
+    static std::string seen;          // names already reported, comma separated
+    static unsigned passes{};
+    ++passes;
+
+    auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    const auto* section = IMAGE_FIRST_SECTION(nt);
+    unsigned found{};
+
+    for (unsigned s = 0; s < nt->FileHeader.NumberOfSections; ++s, ++section) {
+        if (section->Characteristics & IMAGE_SCN_MEM_EXECUTE) continue;
+        if (!(section->Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+        const auto start = reinterpret_cast<uintptr_t>(base + section->VirtualAddress);
+        for (size_t offset = 0; offset + 0x40 <= section->Misc.VirtualSize;
+             offset += sizeof(void*)) {
+            const uintptr_t candidate = start + offset;
+            std::string name;
+            if (!read_state_name(candidate, name)) continue;
+            // A vtable in the image and a next pointer that is null or another
+            // object of the same shape keeps the false positives down.
+            uintptr_t vtable{};
+            if (!safe_read(candidate, vtable) || !vtable || !readable(vtable, 8)) continue;
+            uintptr_t next{};
+            if (!safe_read(candidate + kStateNextOffset, next)) continue;
+            if (next && !readable(next, 0x40)) continue;
+            const std::string key = "," + name + ",";
+            if (seen.find(key) != std::string::npos) continue;
+            seen += key;
+            ++found;
+            log_line("State scan: '%s' at +0x%llX", name.c_str(),
+                     static_cast<unsigned long long>(candidate -
+                     reinterpret_cast<uintptr_t>(base)));
+            if (found > 200) return;
+        }
+    }
+    log_line("State scan: pass %u found %u new object(s)", passes, found);
+}

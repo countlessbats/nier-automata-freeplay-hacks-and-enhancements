@@ -282,6 +282,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     ULONGLONG last_jump_sound{};
 
     bool easy_chips_ready{};
+    ULONGLONG next_state_scan{};
+    unsigned state_scan_passes{};
     unsigned long long config_seen = config_stamp();
     uintptr_t player_behavior{};
     std::vector<uint32_t> grounded_snapshot;
@@ -321,13 +323,21 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 // shape of "continue from slot N". Read-only for now: the list
                 // is enumerated so the object can be confirmed before anything
                 // is called through it.
-                find_state_object("ContinueState", true);
+                scan_state_objects();
+                next_state_scan = GetTickCount64() + 15000;
             }
             // Same timing constraint as the sound hook: the code signature
             // only exists once the executable has decrypted itself.
             if (config_.keep_chips_on_death) install_chip_keeper();
             easy_chips_ready = true;
         }
+        // The title screen builds objects after startup, so scan again a
+        // couple of times rather than only once.
+        if (config_.auto_load_last_save && next_state_scan && loop_time >= next_state_scan) {
+            scan_state_objects();
+            next_state_scan = ++state_scan_passes < 3 ? loop_time + 15000 : 0;
+        }
+
         // Reapplied every pass so the panel's switch takes effect at once.
         if (easy_chips_ready) set_easy_chips_anywhere(config_.easy_chips_anywhere);
 

@@ -695,3 +695,30 @@ Two things to settle next, in this order:
 The goal remains a single call that lands in the game, with no synthetic input:
 the user specifically does not want button emulation, partly because Start Game
 is a second confirmation after the file is chosen.
+
+
+### Scanning for StateObjects: a dead end as written
+
+Walking the list needs a head that has not been found, so the next attempt
+scanned writable memory for anything of the right shape instead. The filter — a
+pointer at `+0x00` into the image, a readable short printable string at `+0x20`,
+and a null-or-valid pointer at `+0x38` — is far too loose. It matched string
+tables and text markup tokens: `GER`, `ESP`, `KOR`, `BGCOLOR_`, `/COL`, `NOISE`,
+`B`, `/I`. `ContinueState` was not among them, at startup or fifteen and thirty
+seconds later once the title screen had settled.
+
+That leaves three honest possibilities, and they should be distinguished before
+more code is written:
+
+1. `ContinueState` is not a StateObject at all. Its RTTI exists, but nothing has
+   yet shown it living in the StateObject chain.
+2. It exists only while a continue is in progress, so it can never be found from
+   the title screen — making it the wrong handle for this feature entirely.
+3. The shape assumption is wrong. The 0x40 layout comes from AutomataMP and is
+   for a different build.
+
+The way to settle it without guessing is to stop looking for the object and look
+for the code instead: find what writes or reads `ContinueState`'s vtable, or
+breakpoint the save-load path once and see what actually runs when Start Game is
+chosen. Both are observation rather than inference, which is what has worked
+every other time on this project.

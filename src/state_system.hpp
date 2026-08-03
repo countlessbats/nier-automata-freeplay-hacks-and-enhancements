@@ -28,3 +28,8 @@ uintptr_t find_scene_state_system();
 // the shape of "continue from slot N" — the call the Start Game button ends up
 // making. Walks the list and logs every name; returns the named one, or 0.
 uintptr_t find_state_object(const char* name, bool log_all);
+
+// Walking the list needs its head, which has not been found. Scanning for every
+// object of the right shape does not: it finds them wherever they live, and
+// catches ones created after startup if called again later.
+void scan_state_objects();
