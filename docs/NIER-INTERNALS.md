@@ -742,3 +742,44 @@ for the code instead: find what writes or reads `ContinueState`'s vtable, or
 breakpoint the save-load path once and see what actually runs when Start Game is
 chosen. Both are observation rather than inference, which is what has worked
 every other time on this project.
+
+## The save system, from the decrypted image
+
+`tools/dump_image.exe NieRAutomata.exe <out> 180` writes the running image in
+image layout, so a file offset equals an RVA and capstone (`pip install
+capstone`) disassembles it directly. Everything below is an RVA in that dump.
+
+### Recovering names
+
+The engine registers its script-callable methods through an interning function
+at `+0x28ED00`, called as `lea rcx, [name]; lea rax, [function]; call`. Walking
+every call site and reading the two `lea` targets yields about 1,880
+`name -> function` pairs, which is the closest thing this build has to a symbol
+table. Worth re-deriving whenever a new subsystem needs naming.
+
+Entries that matter here:
+
+| Script name | Function |
+| --- | --- |
+| `SaveState.loadFromMemory` | `+0x38E9A0`, a `jmp` to `+0x9C5D20` |
+| `SaveState.saveToMemory` | `+0x3AC6C0`, calls `+0x9C93F0` with the slot in `cl` |
+| `SaveState.saveToMemoryPoint` | `+0x3AC740` |
+| `MiscState.getSaveData` / `setSaveData` | `+0x388700` / `+0x3AE7B0` |
+| `ContinueState.setBadEnd` | `+0x3ADD30` |
+
+The `State` methods take the script object in `rcx` and their argument in `dl`,
+then forward to a plain function that takes the slot on its own. Those plain
+functions, `+0x9C5D20` and `+0x9C93F0`, are the ones worth calling directly.
+
+### Where the files are read
+
+`+0x282BD0` builds a save path from an object whose `+0x38` holds the slot
+index: `-2` selects `SystemData.dat`, `-1` selects `%sGameData.dat`, and
+anything else formats `%sSlotData_%d.dat`.
+
+The reads themselves come from `+0x75F820`, which is registered as a startup
+step at `+0x75EBFF` and run through the dispatcher at `+0x75EAF0`. That is
+boot-time and menu-time enumeration: **the game reads every slot into memory
+before the save list is drawn.** Choosing Start Game therefore does not open a
+file, which is why hooking `CreateFileW` never caught the moment of the load and
+why the load path has to be driven through the in-memory API instead.
