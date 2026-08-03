@@ -1,6 +1,7 @@
 #include "game_events.hpp"
 #include "chip_keeper.hpp"
 #include "easy_chips.hpp"
+#include "quick_load.hpp"
 #include "save_probe.hpp"
 #include "config.hpp"
 #include "sound_hook.hpp"
@@ -337,6 +338,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             scan_state_objects();
             next_state_scan = ++state_scan_passes < 3 ? loop_time + 15000 : 0;
         }
+
+        if (config_.auto_load_last_save) try_quick_load();
 
         // Reapplied every pass so the panel's switch takes effect at once.
         if (easy_chips_ready) set_easy_chips_anywhere(config_.easy_chips_anywhere);
