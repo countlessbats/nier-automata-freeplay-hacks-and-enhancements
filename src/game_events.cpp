@@ -251,9 +251,9 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     ULONGLONG last_footstep{};
     unsigned footsteps_logged{};
     float player_speed{};
-    float speed_peak{};
     uint32_t animation_state{};
-    ULONGLONG speed_peak_time{};
+    ULONGLONG speed_hold_time{};
+    float instant_speed{};
     Vec3 last_position{};
     ULONGLONG last_position_time{};
     bool have_last_position{};
@@ -346,19 +346,6 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                     uint32_t state{};
                     if (safe_read(behavior + kAnimationState, state) && state <= 64)
                         animation_state = state;
-                    float speed{};
-                    if (safe_read(behavior + kControllerSpeed, speed) && std::isfinite(speed) &&
-                        speed >= 0.0f && speed < 100000.0f) {
-                        player_speed = speed;
-                        // The field occasionally reads zero when the poll lands
-                        // mid-update, which would drop a genuine step, so the
-                        // gate uses the peak of the last fraction of a second.
-                        const ULONGLONG now = GetTickCount64();
-                        if (speed >= speed_peak || now - speed_peak_time > 250) {
-                            speed_peak = speed;
-                            speed_peak_time = now;
-                        }
-                    }
                     if (safe_read(behavior + 0x50, player_position) &&
                         std::isfinite(player_position.x) && std::isfinite(player_position.y) &&
                         std::isfinite(player_position.z)) have_player = true;
@@ -391,9 +378,13 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                     // Hold the peak briefly: a turn momentarily kills the speed
                     // without ending the sprint, which is what made a raw
                     // reading flicker.
-                    if (speed >= measured_speed || now - speed_peak_time > 400) {
+                    instant_speed = speed;
+                    // Its own timestamp. Sharing one with the old reader meant
+                    // this hold never decayed and simply latched the highest
+                    // speed of the whole session.
+                    if (speed >= measured_speed || now - speed_hold_time > 400) {
                         measured_speed = speed;
-                        speed_peak_time = now;
+                        speed_hold_time = now;
                     }
                 }
                 last_position = player_position;
@@ -477,8 +468,8 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 // filter can be checked against real play rather than assumed.
                 if (footsteps_logged < 30) {
                     ++footsteps_logged;
-                    log_line("Footstep: %-24s measured %.2f units/s", event.name,
-                             measured_speed);
+                    log_line("Footstep: %-24s now %.2f  held %.2f units/s", event.name,
+                             instant_speed, measured_speed);
                 }
                 break;
             }
