@@ -1,4 +1,4 @@
-# NieR:Automata — free-play hacks and enhancements
+# NieR:Automata — combined haptics and quality of life
 
 A native `dinput8.dll` mod for the Steam release of NieR:Automata. It adds
 DualSense haptics driven by the game's own sound events, an in-game settings
@@ -26,6 +26,9 @@ haptic channels. Every effect fires from an event the game itself raises:
 
 **In-game settings panel.** Press F10. It draws on the game's own renderer, takes
 arrow keys and Enter as well as the mouse, and every change applies immediately.
+It holds three switches and nothing else: haptics, unlimited jumps, and keeping
+chips. Turning haptics off restores the game's own rumble motors, so the two
+never run at once.
 
 **Unlimited jumps.** Jump as many times as you like in the air.
 

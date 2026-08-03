@@ -6,11 +6,11 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.31**, commit `a8030cf`.
+- Installed build: **1.0.32**, commit pending.
 - Installed DLL SHA-256:
-  `8FE1B530E5B08A6F418D76340EC7433DDECE552C26C8619255A94AADCDC23285`.
+  `16D29FF6109483EAC23FD25A3060BA009AFA94D6B0018A9F52506E8752A93101`.
 - Remote: `origin` ->
-  https://github.com/countlessbats/nier-automata-freeplay-hacks-and-enhancements
+  https://github.com/countlessbats/nier-automata-combined-haptics-and-qol
   (public). Push every commit before calling work complete.
 - **History was rewritten once, before the first push**, to purge bulk strings
   extracted from the game binary and four screen captures that had caught the

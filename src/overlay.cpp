@@ -55,12 +55,6 @@ void write_bool(const wchar_t* section, const wchar_t* key, bool value) {
     write_setting(section, key, value ? L"1" : L"0");
 }
 
-void write_float(const wchar_t* section, const wchar_t* key, float value) {
-    wchar_t text[32]{};
-    swprintf_s(text, L"%.3f", value);
-    write_setting(section, key, text);
-}
-
 // Step-by-step breadcrumbs through the one-time initialisation. log_line closes
 // the file every call, so the last line written survives a crash.
 void step(const char* what) {
@@ -147,10 +141,26 @@ HRESULT STDMETHODCALLTYPE get_device_data_hook(void* device, DWORD size, void* d
 using GetAsyncKeyStateFn = SHORT(WINAPI*)(int);
 using GetKeyStateFn = SHORT(WINAPI*)(int);
 using XInputGetStateFn = DWORD(WINAPI*)(DWORD, void*);
+using XInputSetStateFn = DWORD(WINAPI*)(DWORD, void*);
+// The game drives the rumble motors through XInputSetState. Our haptics use the
+// controller's actuators instead, and having both run at once feels like mush,
+// so exactly one of them is live at a time.
+volatile LONG g_suppress_native_rumble{1};
 
 GetAsyncKeyStateFn g_get_async_key_state{};
 GetKeyStateFn g_get_key_state{};
 XInputGetStateFn g_xinput_get_state{};
+XInputSetStateFn g_xinput_set_state{};
+
+DWORD WINAPI xinput_set_state_hook(DWORD user, void* vibration) {
+    if (g_suppress_native_rumble && vibration) {
+        // XINPUT_VIBRATION is two WORDs; hand the driver a silent copy rather
+        // than editing the game's own struct.
+        unsigned char silent[4]{};
+        return g_xinput_set_state(user, silent);
+    }
+    return g_xinput_set_state(user, vibration);
+}
 SHORT WINAPI get_async_key_state_hook(int key) {
     if (g_visible) return 0;
     return g_get_async_key_state(key);
@@ -221,50 +231,31 @@ void draw_panel() {
 
     ImGui::SetNextWindowSize(ImVec2(430, 0), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(60, 60), ImGuiCond_FirstUseEver);
-    ImGui::Begin("NieR Haptics", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::Begin("NieR:Automata", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
     ImGui::TextDisabled("Press the toggle key to close. Changes apply immediately.");
     ImGui::Separator();
 
-    if (ImGui::Checkbox("Haptics on", &g_settings.haptics_enabled))
+    if (ImGui::Checkbox("DualSense haptics", &g_settings.haptics_enabled)) {
         write_bool(L"General", L"HapticsEnabled", g_settings.haptics_enabled);
-
-    if (ImGui::CollapsingHeader("Footsteps", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (ImGui::Checkbox("Enabled##foot", &g_settings.footsteps_enabled))
-            write_bool(L"Haptics", L"FootstepsEnabled", g_settings.footsteps_enabled);
-        if (ImGui::SliderFloat("Intensity##foot", &g_settings.footstep_strength, 0.0f, 0.3f, "%.3f"))
-            write_float(L"Haptics", L"FootstepStrength", g_settings.footstep_strength);
-        if (ImGui::Checkbox("Skip the slow walk", &g_settings.footsteps_sprint_only))
-            write_bool(L"Haptics", L"FootstepsSprintOnly", g_settings.footsteps_sprint_only);
-        // Running and sprinting share one event name, so only speed separates
-        // them. Drag this while moving to find the line by feel.
-        if (ImGui::SliderFloat("Sprint speed", &g_settings.footstep_min_speed, 0.0f, 20.0f, "%.1f"))
-            write_float(L"Haptics", L"FootstepMinSpeed", g_settings.footstep_min_speed);
-        ImGui::TextDisabled("Jogging measures 4.5-7.2, sprinting 7.7-14.3. 0 feels every step.");
+        InterlockedExchange(&g_suppress_native_rumble, g_settings.haptics_enabled ? 1 : 0);
     }
+    ImGui::TextDisabled(g_settings.haptics_enabled
+        ? "On: footsteps, hits and menus on the controller's actuators."
+        : "Off: the game's own rumble motors, as shipped.");
 
-    if (ImGui::CollapsingHeader("Combat and menus", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (ImGui::Checkbox("Landing a hit", &g_settings.enemy_hit_enabled))
-            write_bool(L"Haptics", L"EnemyHitEnabled", g_settings.enemy_hit_enabled);
-        if (ImGui::SliderFloat("Hit intensity", &g_settings.enemy_hit_strength, 0.0f, 1.0f, "%.2f"))
-            write_float(L"Haptics", L"EnemyHitStrength", g_settings.enemy_hit_strength);
-        if (ImGui::Checkbox("Taking a hit", &g_settings.player_hit_enabled))
-            write_bool(L"Haptics", L"PlayerHitEnabled", g_settings.player_hit_enabled);
-        if (ImGui::SliderFloat("Damage intensity", &g_settings.player_hit_strength, 0.0f, 1.0f, "%.2f"))
-            write_float(L"Haptics", L"PlayerHitStrength", g_settings.player_hit_strength);
-        if (ImGui::Checkbox("Menu haptics", &g_settings.menu_enabled))
-            write_bool(L"Haptics", L"MenuEnabled", g_settings.menu_enabled);
-        if (ImGui::SliderFloat("Menu intensity", &g_settings.menu_strength, 0.0f, 1.0f, "%.2f"))
-            write_float(L"Haptics", L"MenuStrength", g_settings.menu_strength);
-    }
+    ImGui::Spacing();
+    ImGui::Separator();
 
-    if (ImGui::CollapsingHeader("Gameplay", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (ImGui::Checkbox("Unlimited jumps", &g_settings.multi_jump_enabled))
-            write_bool(L"Gameplay", L"MultiJumpEnabled", g_settings.multi_jump_enabled);
-        if (ImGui::Checkbox("Keep chips on death", &g_settings.keep_chips_on_death))
-            write_bool(L"Gameplay", L"KeepChipsOnDeath", g_settings.keep_chips_on_death);
-        ImGui::TextDisabled("Chip setting applies on the next launch.");
-    }
+    if (ImGui::Checkbox("Unlimited jumps", &g_settings.multi_jump_enabled))
+        write_bool(L"Gameplay", L"MultiJumpEnabled", g_settings.multi_jump_enabled);
+    ImGui::TextDisabled("Jump as often as you like without landing.");
 
+    ImGui::Spacing();
+    if (ImGui::Checkbox("Keep plug-in chips on death", &g_settings.keep_chips_on_death))
+        write_bool(L"Gameplay", L"KeepChipsOnDeath", g_settings.keep_chips_on_death);
+    ImGui::TextDisabled("Applies on the next launch; the corpse still spawns.");
+
+    ImGui::Spacing();
     if (ImGui::Button("Reload from file")) { g_settings = load_config(); }
     ImGui::End();
 }
@@ -547,6 +538,7 @@ bool install_overlay() {
                                                config_path().c_str()) != 0;
     g_toggle_key = static_cast<int>(GetPrivateProfileIntW(L"Overlay", L"ToggleKeyVirtualCode",
                                                           VK_F10, config_path().c_str()));
+    InterlockedExchange(&g_suppress_native_rumble, load_config().haptics_enabled ? 1 : 0);
     // The game creates its device through CreateDXGIFactory, so intercepting that
     // import leads to the factory, then to the swap chain it makes. No device of
     // our own is created and nothing shared is modified.
@@ -568,6 +560,11 @@ bool install_overlay() {
     if (patch_main_import_ordinal("XINPUT1_4.dll", 2,
                                   reinterpret_cast<void*>(&xinput_get_state_hook), &original))
         g_xinput_get_state = reinterpret_cast<XInputGetStateFn>(original);
+    if (patch_main_import_ordinal("XINPUT1_4.dll", 3,
+                                  reinterpret_cast<void*>(&xinput_set_state_hook), &original)) {
+        g_xinput_set_state = reinterpret_cast<XInputSetStateFn>(original);
+        log_line("Haptics: the game's own rumble is suppressed while ours is on");
+    }
     log_line("Overlay: input will be held back from the game while the panel is open");
 
     log_line("Overlay: waiting for the game to create its swap chain");
