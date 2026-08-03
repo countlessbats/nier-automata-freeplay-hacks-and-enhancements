@@ -48,6 +48,22 @@ constexpr uintptr_t kAnimationState = 0x106F4;
 // air-jump counter; it only ever reads.
 constexpr size_t kPlayerBlockBytes = 0x17920;
 
+// GetTickCount64 advances in ~15.6 ms steps. Dividing a distance by an elapsed
+// time measured that coarsely gave errors of up to a quarter, which was enough
+// to push a steady jog over the sprint threshold at random while the player's
+// speed never changed. Speed timing uses the performance counter instead.
+double seconds_now() {
+    static LARGE_INTEGER frequency = [] {
+        LARGE_INTEGER f{};
+        QueryPerformanceFrequency(&f);
+        if (!f.QuadPart) f.QuadPart = 1;
+        return f;
+    }();
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
+}
+
 template <typename T> bool safe_read(uintptr_t address, T& value) {
     __try {
         value = *reinterpret_cast<const T*>(address);
@@ -255,10 +271,10 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     bool auto_load_started{};
     float player_speed{};
     uint32_t animation_state{};
-    ULONGLONG speed_hold_time{};
+    double speed_hold_time{};
     float instant_speed{};
     Vec3 last_position{};
-    ULONGLONG last_position_time{};
+    double last_position_time{};
     bool have_last_position{};
     float measured_speed{};
     ULONGLONG last_player_attack{};
@@ -297,8 +313,10 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             // First half of loading a save without synthetic input: reach the
             // game's own state system and confirm the Continue category is
             // there. Read-only; nothing is called yet.
-            if (config_.auto_load_last_save)
-                find_token_category("@Continue", true);
+            if (config_.auto_load_last_save) {
+                find_token_category(nullptr, true);
+                find_scene_state_system();
+            }
             // Same timing constraint as the sound hook: the code signature
             // only exists once the executable has decrypted itself.
             if (config_.keep_chips_on_death) install_chip_keeper();
@@ -375,12 +393,14 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
         // between samples divided by the time between them. Sampled at 60 ms so
         // a single stuttering frame cannot dominate, and teleports are ignored.
         if (have_player) {
-            const ULONGLONG now = GetTickCount64();
-            if (have_last_position && now - last_position_time >= 60) {
+            const double now = seconds_now();
+            // A longer window than before as well: at 100 ms a single stuttering
+            // frame moves the result far less.
+            if (have_last_position && now - last_position_time >= 0.100) {
                 const float dx = player_position.x - last_position.x;
                 const float dz = player_position.z - last_position.z;
                 const float distance = std::sqrt(dx * dx + dz * dz);
-                const float elapsed = static_cast<float>(now - last_position_time) / 1000.0f;
+                const float elapsed = static_cast<float>(now - last_position_time);
                 if (elapsed > 0.0f && distance < 500.0f) {
                     const float speed = distance / elapsed;
                     // Hold the peak briefly: a turn momentarily kills the speed
@@ -390,7 +410,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                     // Its own timestamp. Sharing one with the old reader meant
                     // this hold never decayed and simply latched the highest
                     // speed of the whole session.
-                    if (speed >= measured_speed || now - speed_hold_time > 250) {
+                    if (speed >= measured_speed || now - speed_hold_time > 0.250) {
                         measured_speed = speed;
                         speed_hold_time = now;
                     }

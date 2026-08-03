@@ -588,6 +588,17 @@ lookup. The string at `0xC3FBF0` referenced from `0xBFC50` is something else —
 possibly a scene-state name rather than a category, or registered by a system
 that is not running at the title screen.
 
+**`SceneStateSystem` is now located: `+0xFC2370`**, confirmed live, from the
+`@SceneState` category at `+0xFC23B0` minus `0x40`. That is the object
+AutomataMP drives, so `has` / `set` / `reset` are reachable on it.
+
+What remains is identifying *which* scene state means continue. A state is
+addressed only by a CRC32 of its name, so it cannot be enumerated — but it can
+be observed: hook `set` and log the CRC it receives while choosing Continue from
+the menu by hand, then call `set` with that CRC at the title screen. AutomataMP
+locates these script functions by PUID rather than fixed offsets, which is the
+approach to copy since its published offsets are from a different build.
+
 The next thing to try is `@SceneState`, which *is* present and is the system
 AutomataMP drives: `SceneStateSystem` sits at the category address minus 0x40
 and exposes `has`, `set` and `reset`, each taking a `SceneStateName` that is

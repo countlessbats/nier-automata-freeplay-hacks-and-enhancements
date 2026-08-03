@@ -131,3 +131,28 @@ uintptr_t find_token_category(const char* wanted, bool log_all) {
              found ? "; the wanted one was found" : "");
     return found;
 }
+
+uintptr_t find_scene_state_system() {
+    const uintptr_t category = find_token_category("@SceneState", false);
+    if (!category) {
+        log_line("State system: @SceneState is not registered");
+        return 0;
+    }
+    // SceneStateSystem derives from StateObject (0x40) then TokenCategory, so
+    // the category address is the object's base plus 0x40.
+    const uintptr_t system = category - 0x40;
+    uintptr_t vtable{};
+    if (!safe_read(system, vtable) || !vtable || !readable(vtable, sizeof(void*))) {
+        log_line("State system: @SceneState at +0x%llX but the object below it does not "
+                 "look valid",
+                 static_cast<unsigned long long>(
+                     category - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
+        return 0;
+    }
+    log_line("State system: SceneStateSystem at +0x%llX (category +0x%llX)",
+             static_cast<unsigned long long>(
+                 system - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))),
+             static_cast<unsigned long long>(
+                 category - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
+    return system;
+}

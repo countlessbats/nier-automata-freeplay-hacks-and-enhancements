@@ -16,3 +16,9 @@ struct TokenCategoryView {
 // Walks the list and writes every category to the log. Returns the address of
 // the named one, or 0.
 uintptr_t find_token_category(const char* name, bool log_all);
+
+// `@Continue` turned out not to be a token category, so the load path is not a
+// lookup by that name. `@SceneState` is present, and its category sits at the
+// end of the SceneStateSystem object, so the system itself is 0x40 earlier.
+// Returns 0 if the category is absent.
+uintptr_t find_scene_state_system();
