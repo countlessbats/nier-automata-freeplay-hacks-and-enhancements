@@ -156,3 +156,79 @@ uintptr_t find_scene_state_system() {
                  category - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
     return system;
 }
+
+// StateObject, per praydog's SDK, is 0x40 bytes:
+//   +0x00 vftable   +0x08 hash    +0x10 ptr   +0x18 pad
+//   +0x20 name      +0x28 ptr     +0x30 crc   +0x38 next
+namespace {
+constexpr size_t kStateNameOffset = 0x20;
+constexpr size_t kStateNextOffset = 0x38;
+
+bool read_state_name(uintptr_t object, std::string& out) {
+    uintptr_t pointer{};
+    if (!safe_read(object + kStateNameOffset, pointer) || !pointer) return false;
+    if (!readable(pointer, 1)) return false;
+    char text[65]{};
+    __try {
+        memcpy(text, reinterpret_cast<const void*>(pointer), 64);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    text[64] = 0;
+    out.assign(text, strnlen_s(text, 64));
+    if (out.empty() || out.size() > 48) return false;
+    for (unsigned char c : out) if (c < 0x20 || c > 0x7E) return false;
+    return true;
+}
+}  // namespace
+
+uintptr_t find_state_object(const char* wanted, bool log_all) {
+    auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    const auto* section = IMAGE_FIRST_SECTION(nt);
+
+    // Any object in the list will do as an entry point, so look for one whose
+    // name reads back sensibly and that chains to another of the same shape.
+    uintptr_t head{};
+    for (unsigned s = 0; s < nt->FileHeader.NumberOfSections && !head; ++s, ++section) {
+        if (section->Characteristics & IMAGE_SCN_MEM_EXECUTE) continue;
+        if (!(section->Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+        const auto start = reinterpret_cast<uintptr_t>(base + section->VirtualAddress);
+        for (size_t offset = 0; offset + 0x40 <= section->Misc.VirtualSize;
+             offset += sizeof(void*)) {
+            const uintptr_t candidate = start + offset;
+            std::string name;
+            if (!read_state_name(candidate, name)) continue;
+            uintptr_t next{};
+            if (!safe_read(candidate + kStateNextOffset, next) || !next) continue;
+            if (!readable(next, 0x40)) continue;
+            std::string following;
+            if (!read_state_name(next, following)) continue;
+            head = candidate;
+            break;
+        }
+    }
+    if (!head) {
+        log_line("State system: no StateObject list found");
+        return 0;
+    }
+
+    uintptr_t found{};
+    unsigned count{};
+    for (uintptr_t node = head; node && count < 512; ++count) {
+        std::string name;
+        if (!read_state_name(node, name)) break;
+        if (log_all)
+            log_line("State system: state object '%s' at +0x%llX", name.c_str(),
+                     static_cast<unsigned long long>(
+                         node - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))));
+        if (wanted && name == wanted) found = node;
+        uintptr_t next{};
+        if (!safe_read(node + kStateNextOffset, next) || !next || !readable(next, 0x40)) break;
+        node = next;
+    }
+    log_line("State system: walked %u state objects%s", count,
+             found ? "; the wanted one was found" : "");
+    return found;
+}

@@ -655,3 +655,36 @@ continue is identified by hooking `set` and watching the CRC while choosing
 Continue by hand; or read the highlighted menu index and only send a confirm
 when it is already on Continue, which removes the risk of landing on New Game
 without needing the state system at all.
+
+
+### StateObject list: walk works, but it starts mid-list
+
+`find_state_object` in `src/state_system.cpp` walks the StateObject chain (name
+at `+0x20`, next at `+0x38`, stride `0x40`) and reads real objects out of a
+running game:
+
+| State object | Address |
+| --- | --- |
+| `DEAD` | `+0xF372D8` |
+| `@EnemySet` | `+0xFC6AD0` |
+| `@SCENE` | `+0xFC6200` |
+
+Only three, which means the scan latched onto a node partway down the chain
+rather than its head — the same problem the token category walk solved by
+anchoring on `GlobalPhase`. **`ContinueState` was not in the reachable portion.**
+
+Two things to settle next, in this order:
+
+1. **Find the real head.** The token category walk anchors on a name the game
+   always registers first. The StateObject list needs the same treatment, either
+   by finding an equivalent always-present name to anchor on, or by locating the
+   head pointer properly — AutomataMP has a `StateObject::get_first`, and its
+   approach of scanning for the registration of the first object is the model.
+2. **Only then decide whether `ContinueState` is even reachable at the title.**
+   It may only be constructed once a save is being continued, in which case it
+   is the wrong handle entirely and the answer is the save-load call itself
+   rather than a state object.
+
+The goal remains a single call that lands in the game, with no synthetic input:
+the user specifically does not want button emulation, partly because Start Game
+is a second confirmation after the file is chosen.

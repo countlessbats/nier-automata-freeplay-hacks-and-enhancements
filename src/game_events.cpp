@@ -314,8 +314,12 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             // game's own state system and confirm the Continue category is
             // there. Read-only; nothing is called yet.
             if (config_.auto_load_last_save) {
-                find_token_category(nullptr, true);
                 find_scene_state_system();
+                // ContinueState's script export takes one int, which is the
+                // shape of "continue from slot N". Read-only for now: the list
+                // is enumerated so the object can be confirmed before anything
+                // is called through it.
+                find_state_object("ContinueState", true);
             }
             // Same timing constraint as the sound hook: the code signature
             // only exists once the executable has decrypted itself.

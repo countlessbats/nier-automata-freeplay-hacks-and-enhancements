@@ -22,3 +22,9 @@ uintptr_t find_token_category(const char* name, bool log_all);
 // end of the SceneStateSystem object, so the system itself is 0x40 earlier.
 // Returns 0 if the category is absent.
 uintptr_t find_scene_state_system();
+
+// StateObjects are a second, separate linked list from the token categories.
+// `ContinueState` is one, and its script export takes a single int, which is
+// the shape of "continue from slot N" — the call the Start Game button ends up
+// making. Walks the list and logs every name; returns the named one, or 0.
+uintptr_t find_state_object(const char* name, bool log_all);
