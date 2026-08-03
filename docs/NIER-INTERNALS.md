@@ -606,3 +606,52 @@ only a CRC32 of a string. If continuing is expressed as a scene state, setting
 it is a single call with no synthetic input. Enumerating which scene states
 exist, or watching which one flips when Continue is chosen by hand, would
 identify it.
+
+
+## Easy-mode-only chips in other difficulties
+
+The auto chips are ids **`0xD1A`..`0xD1E`** (five of them), the same family the
+death penalty never takes. Every gate on them tests that range the same way, as
+`lea reg, [id - 0xD1A]` followed by `cmp reg, 4`, which makes them easy to find:
+ten such sites exist.
+
+| Site | Function |
+| --- | --- |
+| `0x7CCE86` | `0x7CCE80` |
+| `0x7DBF65`, `0x7DBF74` | `0x7DBEE8` |
+| `0x7E69DA` | `0x7E69D0` |
+| `0x7E6B0E` | `0x7E6AD0` (help text) |
+| `0x7F2E02` | no pdata entry |
+| `0x7F4FB3` | no pdata entry |
+| `0x80ED9C`, `0x80EF48` | `0x80E530` |
+| `0x81A576` | `0x81A464` |
+
+**`0x9CA170` returns the current difficulty.** The help-text function calls it,
+keeps the result, and picks `CORE_AUTO_CHIP_99` when it equals 3 — so the
+difficulty is a small integer and 3 is the restricted case. It has many callers,
+listed by `find_calls_to`.
+
+**`0x7F2E10` takes (something, chip id) and returns a flag**, and the help text
+uses it together with the difficulty to decide which explanation to show. It is
+the strongest candidate for the legality check, so the next step is to
+disassemble it and see whether it consults `0x9CA170`.
+
+Shape of the feature once that is confirmed: make the legality check answer
+"allowed" for ids `0xD1A`..`0xD1E` regardless of difficulty. The user's
+requirement is that turning the option off must not disturb chips already
+equipped — they simply cannot be re-equipped once removed — which a check-time
+hook satisfies naturally, since nothing is written to the save.
+
+## Quick-load from the title screen, recap
+
+Established already: `SceneStateSystem` is at `+0xFC2370`, `@Continue` is not a
+token category, the title menu builder is `0x928FE0` and zeroes what look like
+selection fields at `+0x450`/`+0x45C`, and `UITitleMenu`'s RTTI is at `0xFB58D8`
+but cannot be found by a reference scan because MSVC uses image-relative offsets
+in the complete-object locators.
+
+Two ways forward, unchanged: drive the state system once the state that means
+continue is identified by hooking `set` and watching the CRC while choosing
+Continue by hand; or read the highlighted menu index and only send a confirm
+when it is already on Continue, which removes the risk of landing on New Game
+without needing the state system at all.
