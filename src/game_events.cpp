@@ -231,6 +231,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     bool logged_player{};
     bool left_foot{};
     ULONGLONG last_footstep{};
+    unsigned footsteps_logged{};
     ULONGLONG last_player_attack{};
     ULONGLONG last_jump_sound{};
 
@@ -377,10 +378,12 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 // steps ever reach the controller.
                 if (!mine) break;
                 if (config_.footstep_require_moving && !have_player) break;
-                // The event name states the gait, so this is the game's own
-                // answer rather than a guess from speed: walking steps are
-                // `_step_walk_`, sprinting is `_step_run_` or `_step_dash_`.
-                if (config_.footsteps_sprint_only && contains(lowered, "_walk")) break;
+                // The event name states the gait. There are three, not two:
+                // `_step_walk_` is the slow stroll, `_step_run_` is ordinary
+                // traversal, and `_step_dash_` is the sustained sprint. Only the
+                // last of those is sprinting, so both of the others are dropped.
+                if (config_.footsteps_sprint_only &&
+                    (contains(lowered, "_walk") || contains(lowered, "_run"))) break;
                 const ULONGLONG now = GetTickCount64();
                 if (now - last_footstep < config_.footstep_min_interval_ms) break;
                 last_footstep = now;
@@ -388,11 +391,17 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
                 const Foot foot = foot_of(lowered);
                 if (foot == Foot::Unknown) left_foot = !left_foot;
                 else left_foot = foot == Foot::Left;
-                const float strength = contains(lowered, "walk")
+                const float strength = contains(lowered, "_walk")
                     ? config_.footstep_strength * 0.8f
                     : config_.footstep_strength;
                 haptics_.play(left_foot ? HapticEffect::FootLeft : HapticEffect::FootRight,
                               strength);
+                // Names the gait that actually reached the controller, so the
+                // filter can be checked against real play rather than assumed.
+                if (footsteps_logged < 12) {
+                    ++footsteps_logged;
+                    log_line("Footstep: %s", event.name);
+                }
                 break;
             }
             case SoundKind::MeleeHit: {
