@@ -256,6 +256,12 @@ void draw_panel() {
     ImGui::TextDisabled("Applies on the next launch; the corpse still spawns.");
 
     ImGui::Spacing();
+    if (ImGui::Checkbox("Easy-mode chips at any difficulty",
+                        &g_settings.easy_chips_anywhere))
+        write_bool(L"Gameplay", L"EasyChipsAnywhere", g_settings.easy_chips_anywhere);
+    ImGui::TextDisabled("Turning this off leaves equipped chips alone.");
+
+    ImGui::Spacing();
     if (ImGui::Button("Reload from file")) { g_settings = load_config(); }
     ImGui::End();
 }

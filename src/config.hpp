@@ -47,6 +47,9 @@ struct Config {
     // routine, so equipped chips are never moved onto the corpse; the body
     // still spawns and recovering it returns nothing, so nothing duplicates.
     bool keep_chips_on_death{true};
+    // Lets the Easy-only auto chips be equipped at any difficulty. Applied in
+    // memory, so switching it off leaves anything already equipped alone.
+    bool easy_chips_anywhere{false};
     // Walks the title menu with synthetic confirm presses to reach the most
     // recent save. Off by default: the presses are blind, so a menu that is not
     // laid out as expected would land on the wrong entry. Any real input

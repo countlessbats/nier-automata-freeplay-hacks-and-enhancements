@@ -6,9 +6,9 @@
 - Game install: `C:\Program Files (x86)\Steam\steamapps\common\NieRAutomata`
 - Target executable: Steam build 7020666; installer validates SHA-256
   `5171BED09E6FEC7B21BF0EA479DBD2E1B228695C67D1F0B478549A9BE2F5726A`.
-- Installed build: **1.0.33**, commit `6e90548`.
+- Installed build: **1.0.34**, commit pending.
 - Installed DLL SHA-256:
-  `D33302775930A67BBF13D37ABD1A64FB3916529AF1D28D9D82C6E87441CA158B`.
+  `1E66A1A0F55E6581C2265EADD97AAA5AE815D8F8E619369943C7B4FEDE67F6A9`.
 - Remote: `origin` ->
   https://github.com/countlessbats/nier-automata-combined-haptics-and-qol
   (public). Push every commit before calling work complete.

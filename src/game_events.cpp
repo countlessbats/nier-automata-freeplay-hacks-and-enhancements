@@ -1,5 +1,6 @@
 #include "game_events.hpp"
 #include "chip_keeper.hpp"
+#include "easy_chips.hpp"
 #include "config.hpp"
 #include "sound_hook.hpp"
 #include "overlay.hpp"
@@ -280,6 +281,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
     ULONGLONG last_player_attack{};
     ULONGLONG last_jump_sound{};
 
+    bool easy_chips_ready{};
     unsigned long long config_seen = config_stamp();
     uintptr_t player_behavior{};
     std::vector<uint32_t> grounded_snapshot;
@@ -324,7 +326,11 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             // Same timing constraint as the sound hook: the code signature
             // only exists once the executable has decrypted itself.
             if (config_.keep_chips_on_death) install_chip_keeper();
+            easy_chips_ready = true;
         }
+        // Reapplied every pass so the panel's switch takes effect at once.
+        if (easy_chips_ready) set_easy_chips_anywhere(config_.easy_chips_anywhere);
+
         Vec3 player_position{};
         bool have_player{};
 

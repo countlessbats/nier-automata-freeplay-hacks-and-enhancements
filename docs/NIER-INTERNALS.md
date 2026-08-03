@@ -636,7 +636,14 @@ uses it together with the difficulty to decide which explanation to show. It is
 the strongest candidate for the legality check, so the next step is to
 disassemble it and see whether it consults `0x9CA170`.
 
-Shape of the feature once that is confirmed: make the legality check answer
+**Implemented.** The gate is `0x7F4F80`: it walks the chip array at stride
+`0x30` and returns 1 as soon as a chip's id falls in `0xD1A..0xD1E`. Overwriting
+its first three bytes with `xor eax, eax; ret` makes it answer "no auto chips
+here", which is what the restriction hangs on. Three bytes, reversible in place,
+nothing written to the save, so the option can be switched while playing and
+turning it off leaves equipped chips alone.
+
+Original shape of the feature: make the legality check answer
 "allowed" for ids `0xD1A`..`0xD1E` regardless of difficulty. The user's
 requirement is that turning the option off must not disturb chips already
 equipped — they simply cannot be re-equipped once removed — which a check-time

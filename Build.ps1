@@ -23,6 +23,7 @@ $sources = @(
     (Join-Path $root 'src\sound_hook.cpp'),
     (Join-Path $root 'src\game_events.cpp'),
     (Join-Path $root 'src\chip_keeper.cpp'),
+    (Join-Path $root 'src\easy_chips.cpp'),
     (Join-Path $root 'src\overlay.cpp'),
     (Join-Path $root 'src\state_system.cpp'),
     (Join-Path $imgui 'imgui.cpp'),
