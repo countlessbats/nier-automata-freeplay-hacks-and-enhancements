@@ -2,7 +2,6 @@
 #include "chip_keeper.hpp"
 #include "auto_chips.hpp"
 #include "easy_chips.hpp"
-#include "camera_probe.hpp"
 #include "quick_load.hpp"
 #include "save_probe.hpp"
 #include "config.hpp"
@@ -322,7 +321,6 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             // switched on: identifying the request a real Start Game issues is
             // exactly the work that has to happen while quick load is off.
             if (config_.log_save_state) install_save_probe();
-            if (config_.log_camera_fields) install_camera_probe();
             if (config_.auto_load_last_save) find_scene_state_system();
             // Same timing constraint as the sound hook: the code signature
             // only exists once the executable has decrypted itself.

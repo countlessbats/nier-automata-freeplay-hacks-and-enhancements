@@ -45,13 +45,30 @@ foreach ($name in @('dinput8.dll','NierHaptics.ini','Uninstall-NierHaptics.ps1')
     # The settings file belongs to whoever is playing. Upgrades leave an
     # existing one alone; new keys fall back to their built-in defaults, so a
     # settings file from an older build stays valid.
-    if ($name -eq 'NierHaptics.ini' -and (Test-Path -LiteralPath $destination)) { continue }
+    # The settings file belongs to whoever is playing, so an existing one is
+    # never replaced. Keys the build has added since are appended, otherwise a
+    # new option would be invisible in every install that already had a file.
+    if ($name -eq 'NierHaptics.ini' -and (Test-Path -LiteralPath $destination)) {
+        $existing = Get-Content -LiteralPath $destination
+        $addition = @()
+        foreach ($line in (Get-Content -LiteralPath (Join-Path $Stage $name))) {
+            if ($line -match '^\s*([A-Za-z0-9_]+)\s*=') {
+                $key = $Matches[1]
+                if (-not ($existing -match ('^\s*' + [regex]::Escape($key) + '\s*='))) { $addition += $line }
+            }
+        }
+        if ($addition.Count) {
+            Add-Content -LiteralPath $destination -Value (@('') + $addition)
+            Write-Host "Added $($addition.Count) new setting(s) to NierHaptics.ini"
+        }
+        continue
+    }
     $source = Join-Path $Stage $name
     $temporary = Join-Path $Target ($name + '.nierhaptics-new')
     Copy-Item -LiteralPath $source -Destination $temporary -Force
     Move-Item -LiteralPath $temporary -Destination $destination -Force
 }
-@{ version='1.0.51'; dllHash=$sourceHash; backup=(Test-Path -LiteralPath $backup) } |
+@{ version='1.0.52'; dllHash=$sourceHash; backup=(Test-Path -LiteralPath $backup) } |
     ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 if ($Stage -like (Join-Path $Target '.nierhaptics-stage-*')) {
     Remove-Item -LiteralPath $Stage -Recurse -Force

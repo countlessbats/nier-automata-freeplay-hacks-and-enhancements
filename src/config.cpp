@@ -85,7 +85,6 @@ Config load_config() {
     c.easy_chips_anywhere = read_bool(L"Gameplay", L"EasyChipsAnywhere", c.easy_chips_anywhere, path);
     c.auto_chips_always_on = read_bool(L"Gameplay", L"AutoChipsAlwaysOn", c.auto_chips_always_on, path);
     c.log_save_state = read_bool(L"Diagnostics", L"LogSaveState", c.log_save_state, path);
-    c.log_camera_fields = read_bool(L"Diagnostics", L"LogCameraFields", c.log_camera_fields, path);
     c.auto_load_last_save = read_bool(L"Gameplay", L"AutoLoadLastSave", c.auto_load_last_save, path);
     c.auto_load_presses = read_number(L"Gameplay", L"AutoLoadPresses", c.auto_load_presses, path);
     c.auto_load_delay_ms = read_number(L"Gameplay", L"AutoLoadDelayMs", c.auto_load_delay_ms, path);
