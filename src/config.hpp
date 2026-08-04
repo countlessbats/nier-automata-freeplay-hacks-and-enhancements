@@ -47,9 +47,10 @@ struct Config {
     // routine, so equipped chips are never moved onto the corpse; the body
     // still spawns and recovering it returns nothing, so nothing duplicates.
     bool keep_chips_on_death{true};
-    // Stops an equipped auto chip from taking L2 over as its own toggle, so L2
-    // keeps targeting enemies and the chips stay switched on.
-    bool auto_chips_always_on{true};
+    // Stops an equipped auto chip from taking L2 over as its own toggle. Off by
+    // default: what has been patched so far does not reach the readout or the
+    // button, so switching it on currently changes nothing.
+    bool auto_chips_always_on{false};
     // Lets the Easy-only auto chips be equipped at any difficulty. Applied in
     // memory, so switching it off leaves anything already equipped alone.
     bool easy_chips_anywhere{false};
