@@ -29,6 +29,17 @@ namespace {
 // them off and it no longer reaches the toggle.
 constexpr unsigned kCallSites[] = {0x42CD54, 0x7E0F7F, 0x89135F};
 constexpr unsigned kQueryRva = 0x7F4F80;
+
+// A second, separate predicate: isAutoChip(id), testing the id against the
+// 0xD1A..0xD1E range directly rather than scanning a set. Its callers are all
+// in the HUD and menu range, and patching the set-scanning query at three call
+// sites changed nothing about the corner readout or the button, so this is the
+// more likely source of both. Stubbed to return false rather than answered per
+// call site, because it is a leaf predicate with no other meaning.
+constexpr unsigned kIsAutoChipRva = 0x7E69D0;
+// xor eax, eax ; ret
+constexpr unsigned char kReturnFalse[] = {0x31, 0xC0, 0xC3};
+unsigned char g_is_auto_original[sizeof(kReturnFalse)]{};
 constexpr size_t kCallLength = 5;
 
 // xor eax, eax ; nop ; nop ; nop  -- same length as the call it replaces, and
@@ -76,6 +87,16 @@ bool set_auto_chips_always_on(bool enabled) {
     }
 
     if (enabled == g_applied) return true;
+
+    // Captured on the first pass so switching the option off restores exactly
+    // what was there.
+    static bool captured_predicate = false;
+    if (!captured_predicate) {
+        memcpy(g_is_auto_original, base + kIsAutoChipRva, sizeof(kReturnFalse));
+        captured_predicate = true;
+    }
+    write_bytes(base + kIsAutoChipRva,
+                enabled ? kReturnFalse : g_is_auto_original, sizeof(kReturnFalse));
 
     for (size_t i = 0; i < std::size(kCallSites); ++i) {
         if (!write_bytes(base + kCallSites[i],
