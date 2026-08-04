@@ -1,6 +1,7 @@
 #include "game_events.hpp"
 #include "chip_keeper.hpp"
 #include "auto_chips.hpp"
+#include "call_probe.hpp"
 #include "easy_chips.hpp"
 #include "quick_load.hpp"
 #include "save_probe.hpp"
@@ -321,6 +322,7 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             // switched on: identifying the request a real Start Game issues is
             // exactly the work that has to happen while quick load is off.
             if (config_.log_save_state) install_save_probe();
+            if (config_.log_call_sites) install_call_probe();
             if (config_.auto_load_last_save) find_scene_state_system();
             // Same timing constraint as the sound hook: the code signature
             // only exists once the executable has decrypted itself.
@@ -333,6 +335,13 @@ void GameEvents::run(std::atomic_bool& stop_requested) {
             scan_state_objects();
             next_state_scan = ++state_scan_passes < 3 ? loop_time + 15000 : 0;
         }
+
+        // Drained here rather than in the handler: the interrupted thread may
+        // hold the locks the logger needs.
+        const char* probe_label{};
+        unsigned long long probe_caller{};
+        while (pop_call_site(probe_label, probe_caller))
+            log_line("Call probe: %s called from +0x%llX", probe_label, probe_caller);
 
         if (config_.auto_load_last_save) try_quick_load();
 

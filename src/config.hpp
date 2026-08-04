@@ -66,6 +66,9 @@ struct Config {
     // chain crashed the game with a stack overflow and is not yet trusted.
     bool overlay_enabled{false};
 
+    // Reports who calls the auto-chip readout and the chip grid candidates,
+    // which is the only way left to find the gate behind either.
+    bool log_call_sites{true};
     // Writes every distinct sound-event name the game posts to the log, so new
     // events can be mapped without a timed in-game test.
     bool log_sound_names{true};
