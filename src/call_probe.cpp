@@ -24,10 +24,16 @@ struct Site {
 
 constexpr Site kSites[] = {
     {0x9870BA, "auto-chip readout draw"},
-    {0x988BFF, "chip grid candidate A"},
-    {0x98AA30, "chip grid candidate B"},
-    {0x98BBFC, "chip grid candidate C"},
-    {0x991E00, "chip grid candidate D"},
+    // A and D never fired and are dropped. B turned out to be setup, called once
+    // when the screen opens; C handles mouse hover and page scrolling. Neither
+    // moves the cursor, so the up and down handler is elsewhere.
+    {0x98AA30, "chip grid setup"},
+    {0x98BBFC, "chip grid mouse/page"},
+    // Already known to wrap both ways, and known to serve the left hand list. If
+    // it also serves the storage grid then the wrap is present there too and the
+    // panel not looping is a different bug entirely, which is worth knowing
+    // before writing a patch for the wrong thing.
+    {0x98C347, "list nav (wraps already)"},
 };
 
 constexpr size_t kRingSize = 128;
@@ -104,11 +110,43 @@ LONG CALLBACK call_probe_handler(EXCEPTION_POINTERS* exception) {
 
 }  // namespace
 
+// A breakpoint is only useful on a real function entry. Several of these
+// addresses are chained chunks, reached by a jump from elsewhere in the same
+// function, so nothing has been pushed and the top of the stack is not a return
+// address; that is what produced the nonsense caller in the first run. The
+// unwind data knows where each chunk's owning function starts, so it is asked.
+uintptr_t primary_entry(uintptr_t address) {
+    for (int hop = 0; hop < 8; ++hop) {
+        DWORD64 image_base = 0;
+        auto* function = RtlLookupFunctionEntry(address, &image_base, nullptr);
+        if (!function || !image_base) return address;
+        const uintptr_t begin = static_cast<uintptr_t>(image_base) + function->BeginAddress;
+        auto* unwind = reinterpret_cast<const unsigned char*>(image_base + function->UnwindData);
+        const unsigned char flags = static_cast<unsigned char>(unwind[0] >> 3);
+        if (!(flags & 0x4)) return begin;   // UNW_FLAG_CHAININFO
+        // The chained RUNTIME_FUNCTION follows the unwind codes, which are
+        // padded to an even count.
+        const unsigned char codes = unwind[2];
+        const size_t offset = 4 + ((static_cast<size_t>(codes) + 1) & ~size_t{1}) * 2;
+        const auto* chained =
+            reinterpret_cast<const RUNTIME_FUNCTION*>(unwind + offset);
+        const uintptr_t parent = static_cast<uintptr_t>(image_base) + chained->BeginAddress;
+        if (parent == begin || !chained->BeginAddress) return begin;
+        address = parent;
+    }
+    return address;
+}
+
 bool install_call_probe() {
     g_base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
 
     for (const Site& site : kSites) {
-        const uintptr_t address = g_base + site.rva;
+        const uintptr_t requested = g_base + site.rva;
+        const uintptr_t address = primary_entry(requested);
+        if (address != requested)
+            log_line("Call probe: %s at +0x%X belongs to the function at +0x%llX; "
+                     "watching that instead", site.label, site.rva,
+                     static_cast<unsigned long long>(address - g_base));
         unsigned char first{};
         __try {
             first = *reinterpret_cast<const unsigned char*>(address);
