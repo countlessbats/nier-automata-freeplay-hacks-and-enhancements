@@ -18,12 +18,16 @@ namespace {
 //              which is L2 being taken for the auto chip toggle.
 //   +0x7E0F7F  the button label, choosing OPTION_CONFIG_20 (toggle auto chips)
 //              over OPTION_CONFIG_05 (target enemy).
+//   +0x89135F  the button availability query at +0x891240. On a yes it returns
+//              zero, which is what actually takes the button away. Patching only
+//              the first two left the toggle working exactly as before, because
+//              neither of them is what the button itself is asked about.
 //
 // Answering no at both leaves L2 doing what it always did. Every other caller
 // still gets the truth, so the chips keep working and the menus still show them
 // normally. They also stay switched on, because L2 was the only way to turn
 // them off and it no longer reaches the toggle.
-constexpr unsigned kCallSites[] = {0x42CD54, 0x7E0F7F};
+constexpr unsigned kCallSites[] = {0x42CD54, 0x7E0F7F, 0x89135F};
 constexpr unsigned kQueryRva = 0x7F4F80;
 constexpr size_t kCallLength = 5;
 
